@@ -7,10 +7,13 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from interceptor.airframe.aero import Aerodynamics
+from interceptor.airframe.autopilot import Autopilot, clamp_magnitude
 from interceptor.airframe.propulsion import Motor
 from interceptor.core.frames import unit
 from interceptor.core.state import EntityState, Vector
 from interceptor.core.world import Entity, air_density
+from interceptor.guidance.base import GuidanceLaw
+from interceptor.sensing.track import Track, TrackSource
 
 if TYPE_CHECKING:
     from interceptor.core.world import World
@@ -31,9 +34,16 @@ class Missile(Entity):
     point at.
 
     ``guidance_acceleration`` is the lateral command held between guidance
-    ticks. Nothing writes to it in Phase 1, so it stays zero and the missile
-    flies ballistically; from Phase 2 the guidance law sets it at 100 Hz and the
+    ticks. With no guidance law attached it stays zero and the missile flies
+    ballistically; otherwise the law sets it at the guidance rate and the
     integrator sees it as a constant over the ten physics steps in between.
+
+    Guidance is supplied as two independent pieces — a
+    :class:`~interceptor.sensing.track.TrackSource` that says what the missile
+    believes, and a :class:`~interceptor.guidance.base.GuidanceLaw` that decides
+    what to do about it. Swapping either one leaves the other untouched, which
+    is how the same law can be run against perfect information and against a
+    noisy seeker without changing a line of it.
     """
 
     def __init__(
@@ -45,12 +55,21 @@ class Missile(Entity):
         aero: Aerodynamics | None = None,
         launch_time: float = 0.0,
         launch_direction: Vector | None = None,
+        guidance: GuidanceLaw | None = None,
+        track_source: TrackSource | None = None,
+        autopilot: Autopilot | None = None,
     ) -> None:
         super().__init__(name, state)
         self.motor = motor if motor is not None else Motor()
         self.aero = aero if aero is not None else Aerodynamics()
         self.launch_time = launch_time
+        self.guidance = guidance
+        self.track_source = track_source
+        self.autopilot = autopilot if autopilot is not None else Autopilot()
+
         self.guidance_acceleration: Vector = np.zeros(3, dtype=np.float64)
+        self.commanded: Vector = np.zeros(3, dtype=np.float64)
+        self.latest_track: Track | None = None
 
         if launch_direction is not None:
             self._launch_direction = unit(np.asarray(launch_direction, dtype=np.float64))
@@ -79,8 +98,58 @@ class Missile(Entity):
         if thrust > 0.0:
             acceleration = acceleration + (thrust / state.mass) * self.thrust_direction(state)
 
-        return np.asarray(acceleration + self.guidance_acceleration, dtype=np.float64)
+        return np.asarray(acceleration + self.applied_guidance(state), dtype=np.float64)
+
+    def applied_guidance(self, state: EntityState) -> Vector:
+        """The held guidance command, capped by what the air can supply *now*.
+
+        The autopilot already clamped the command at the last guidance tick, but
+        that limit was computed from the state at that moment. Ten physics steps
+        later the missile is slower and lower, and its real limit has fallen —
+        so a command that was achievable when issued may not be by the time it
+        is applied. Re-capping here against the current state means the missile
+        can never pull more than the air allows, which is the physical truth and
+        also what makes the recorded trace trustworthy.
+        """
+        limit = self.aero.available_lateral_acceleration(
+            state.speed, state.mass, air_density(state.altitude)
+        )
+        return clamp_magnitude(self.guidance_acceleration, limit)
 
     def mass_flow(self, t: float, state: EntityState) -> float:
         del state
         return self.motor.mass_flow(t - self.launch_time)
+
+    def available_lateral_acceleration(self) -> float:
+        """What the airframe can currently produce, m/s^2."""
+        return self.aero.available_lateral_acceleration(
+            self.state.speed, self.state.mass, air_density(self.state.altitude)
+        )
+
+    def update_guidance(self, t: float, dt: float) -> None:
+        """Run one guidance cycle: read the track, command, limit, hold.
+
+        The order matters. The law is given the track and produces an unclamped
+        command; the autopilot then applies the airframe's limit and its lag.
+        Recording the command before the clamp is what makes saturation legible
+        afterwards — a law that spends the endgame asking for three times what
+        the airframe can give has failed in a specific, diagnosable way.
+        """
+        if self.guidance is None or self.track_source is None:
+            return
+
+        track = self.track_source.update(t, self.state)
+        self.latest_track = track
+        self.commanded = self.guidance.command(track, self.state)
+        self.guidance_acceleration = self.autopilot.update(
+            self.commanded, dt, self.available_lateral_acceleration()
+        )
+
+    def commanded_acceleration(self) -> float:
+        return float(np.linalg.norm(self.commanded))
+
+    def achieved_acceleration(self) -> float:
+        return float(np.linalg.norm(self.applied_guidance(self.state)))
+
+    def acceleration_limit(self) -> float:
+        return self.available_lateral_acceleration()

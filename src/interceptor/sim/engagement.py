@@ -42,6 +42,7 @@ def run(
     duration: float,
     dt: float = 1e-3,
     record_hz: float = 200.0,
+    guidance_hz: float = 100.0,
     stop: StopCondition | None = None,
 ) -> RunResult:
     """Advance ``world`` for up to ``duration`` seconds.
@@ -51,8 +52,16 @@ def run(
         duration: Maximum simulated time, seconds.
         dt: Physics timestep. 1 ms is the project default.
         record_hz: Sampling rate for the recorder. Must divide ``1 / dt``.
+        guidance_hz: Rate at which guided entities re-plan. Must divide
+            ``1 / dt``. 100 Hz under a 1 kHz physics step means every guidance
+            command is held for ten integration steps.
         stop: Optional early-termination condition, evaluated once per physics
-            tick before the step.
+            tick after guidance and recording, before the step.
+
+    Each tick runs in a fixed order: guidance, then recording, then the stop
+    check, then the integration step. Guidance comes first so that a recorded
+    sample shows the command that is actually in force over the step that
+    follows it, rather than the previous one.
 
     Time is computed as ``tick * dt`` rather than accumulated by repeated
     addition, so it cannot drift over a long run.
@@ -63,6 +72,8 @@ def run(
 
     scheduler = Scheduler(1.0 / dt)
     record_rate = scheduler.rate(record_hz)
+    guidance_rate = scheduler.rate(guidance_hz)
+    guidance_dt = guidance_rate.interval_ticks * dt
 
     total_ticks = round(duration / dt)
     capacity = total_ticks // record_rate.interval_ticks + 2
@@ -73,6 +84,10 @@ def run(
 
     for tick in range(total_ticks + 1):
         t = tick * dt
+
+        if guidance_rate.due(tick):
+            for entity in world.entities:
+                entity.update_guidance(t, guidance_dt)
 
         if record_rate.due(tick):
             recorder.record(t, world)

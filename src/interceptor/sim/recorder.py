@@ -34,6 +34,9 @@ class Recorder:
         self._pos: dict[str, Vector] = {n: np.zeros((capacity, 3), dtype=np.float64) for n in names}
         self._vel: dict[str, Vector] = {n: np.zeros((capacity, 3), dtype=np.float64) for n in names}
         self._mass: dict[str, Vector] = {n: np.zeros(capacity, dtype=np.float64) for n in names}
+        self._cmd: dict[str, Vector] = {n: np.zeros(capacity, dtype=np.float64) for n in names}
+        self._acc: dict[str, Vector] = {n: np.zeros(capacity, dtype=np.float64) for n in names}
+        self._lim: dict[str, Vector] = {n: np.zeros(capacity, dtype=np.float64) for n in names}
 
     def __len__(self) -> int:
         return self._count
@@ -45,6 +48,9 @@ class Recorder:
             self._pos[name] = np.resize(self._pos[name], (new_capacity, 3))
             self._vel[name] = np.resize(self._vel[name], (new_capacity, 3))
             self._mass[name] = np.resize(self._mass[name], new_capacity)
+            self._cmd[name] = np.resize(self._cmd[name], new_capacity)
+            self._acc[name] = np.resize(self._acc[name], new_capacity)
+            self._lim[name] = np.resize(self._lim[name], new_capacity)
 
     def record(self, t: float, world: World) -> None:
         """Append one sample of the whole world."""
@@ -58,6 +64,9 @@ class Recorder:
             self._pos[entity.name][i] = entity.state.pos
             self._vel[entity.name][i] = entity.state.vel
             self._mass[entity.name][i] = entity.state.mass
+            self._cmd[entity.name][i] = entity.commanded_acceleration()
+            self._acc[entity.name][i] = entity.achieved_acceleration()
+            self._lim[entity.name][i] = entity.acceleration_limit()
         self._count += 1
 
     @property
@@ -80,6 +89,23 @@ class Recorder:
     def speed(self, name: str) -> Vector:
         """Speed history for one entity, shape ``(n,)``."""
         return np.asarray(np.linalg.norm(self.velocity(name), axis=1), dtype=np.float64)
+
+    def commanded(self, name: str) -> Vector:
+        """Guidance-commanded acceleration magnitude, m/s^2, shape ``(n,)``."""
+        return self._cmd[name][: self._count]
+
+    def achieved(self, name: str) -> Vector:
+        """Acceleration actually applied after limiting and lag, m/s^2."""
+        return self._acc[name][: self._count]
+
+    def limit(self, name: str) -> Vector:
+        """The airframe's available lateral acceleration at each sample, m/s^2."""
+        return self._lim[name][: self._count]
+
+    def separation(self, first: str, second: str) -> Vector:
+        """Distance between two entities at each sample, metres."""
+        delta = self.position(first) - self.position(second)
+        return np.asarray(np.linalg.norm(delta, axis=1), dtype=np.float64)
 
     def save(self, path: str | Path) -> None:
         """Write the run to a compressed ``.npz`` file."""

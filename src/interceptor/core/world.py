@@ -83,6 +83,32 @@ class Entity(ABC):
         del t, state
         return 0.0
 
+    def update_guidance(self, t: float, dt: float) -> None:
+        """Hook called at the guidance rate, not the physics rate.
+
+        Whatever this sets is then held constant while the integrator takes the
+        steps in between — a zero-order hold, which is what a real digital
+        autopilot does. A no-op for anything that is not guided.
+        """
+        del t, dt
+
+    def commanded_acceleration(self) -> float:
+        """Magnitude of the acceleration guidance asked for, m/s^2."""
+        return 0.0
+
+    def achieved_acceleration(self) -> float:
+        """Magnitude of the acceleration actually applied, m/s^2.
+
+        Differs from :meth:`commanded_acceleration` when the limiter is
+        saturating or the autopilot lag has not caught up. Recording both is
+        what makes those two failure modes visible in a plot.
+        """
+        return 0.0
+
+    def acceleration_limit(self) -> float:
+        """The most lateral acceleration this body could produce now, m/s^2."""
+        return 0.0
+
 
 class World:
     """Holds the entities and advances them all by one fixed step at a time."""
