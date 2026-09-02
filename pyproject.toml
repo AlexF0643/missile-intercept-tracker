@@ -1,0 +1,128 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "missile-intercept-tracker"
+description = "A 3-DOF missile intercept simulation: noisy radar seeker, state estimation and proportional navigation."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Alex Forbes" }]
+keywords = [
+    "simulation",
+    "control-theory",
+    "guidance-navigation-control",
+    "kalman-filter",
+    "proportional-navigation",
+    "numpy",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Typing :: Typed",
+]
+dynamic = ["version"]
+
+# Runtime dependencies are added in the phase that first needs them, so that
+# `pip install missile-intercept-tracker` never pulls something the code does
+# not actually import. numpy is here because it is the foundation of every
+# module from Phase 1 onward.
+dependencies = ["numpy>=1.26"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pre-commit>=3.7",
+]
+
+[project.urls]
+Homepage = "https://github.com/OWNER/missile-intercept-tracker"
+Issues = "https://github.com/OWNER/missile-intercept-tracker/issues"
+
+# --------------------------------------------------------------------------
+# Build
+# --------------------------------------------------------------------------
+# The distribution is named `missile-intercept-tracker` but the import package
+# is `interceptor`, so hatchling cannot infer the source directory. Say it.
+[tool.hatch.build.targets.wheel]
+packages = ["src/interceptor"]
+
+# Single source of truth for the version: the package itself.
+[tool.hatch.version]
+path = "src/interceptor/__init__.py"
+
+# --------------------------------------------------------------------------
+# Lint & format
+# --------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # import sorting
+    "UP",   # pyupgrade — keep syntax current with the floor Python version
+    "B",    # flake8-bugbear — real bug patterns, e.g. mutable default arguments
+    "SIM",  # flake8-simplify
+    "C4",   # comprehension correctness
+    "PT",   # pytest style
+    "TID",  # tidy imports — bans relative imports beyond one level
+    "RUF",  # ruff's own rules
+    "NPY",  # numpy-specific; NPY002 bans legacy np.random.seed / np.random.*
+]
+
+# pep8-naming ("N") is deliberately NOT enabled. This codebase implements
+# published guidance equations where the conventional symbols are single
+# capitals — N, R, Vc, P, Q. Renaming them to satisfy a linter would make the
+# code harder to check against the source texts, not easier.
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
+
+[tool.ruff.format]
+docstring-code-format = true
+
+# --------------------------------------------------------------------------
+# Types
+# --------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+files = ["src", "tests"]
+strict = true
+warn_unreachable = true
+enable_error_code = ["ignore-without-code", "redundant-expr"]
+
+# --------------------------------------------------------------------------
+# Tests
+# --------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "gui: needs a display or a browser; deselect in CI with -m 'not gui'",
+    "slow: Monte Carlo or other long runs; deselect with -m 'not slow'",
+]
+# A warning in a physics simulation is usually a real problem — an overflow, an
+# invalid value, a deprecated numpy call. Make them fail the build.
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["interceptor"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]

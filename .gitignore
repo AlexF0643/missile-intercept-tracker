@@ -1,0 +1,36 @@
+# Byte-compiled
+__pycache__/
+*.py[cod]
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Environments
+.venv/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Simulation output — recorded runs and rendered figures are reproducible from
+# a scenario file and a seed, so they do not belong in version control.
+runs/
+*.npz
+*.mp4
+*.gif
+!docs/assets/*.gif
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
