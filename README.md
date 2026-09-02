@@ -9,7 +9,7 @@ manoeuvring target a hundred times a second, a filter turns those measurements
 into a track, and a proportional-navigation law turns that track into steering
 commands — rendered live in 3D.
 
-> **Status: Phase 0.** Scaffolding only. There is no simulation yet.
+> **Status: Phase 1.** World, integrator and ballistics. No guidance yet.
 
 ## Why this exists
 
