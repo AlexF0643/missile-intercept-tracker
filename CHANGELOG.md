@@ -13,4 +13,4 @@ All notable changes to this project are documented here. The format follows
   GitHub Actions matrix across Python 3.11/3.12 on Ubuntu and Windows, and
   pre-commit hooks mirroring the CI checks.
 
-[Unreleased]: https://github.com/OWNER/missile-intercept-tracker/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/AlexF0643/missile-intercept-tracker/compare/v0.1.0...HEAD

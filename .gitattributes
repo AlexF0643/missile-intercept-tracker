@@ -1,0 +1,11 @@
+# Store every text file with LF in the repository and check it out with LF, so
+# that Windows machines and the Linux CI runners see byte-identical files.
+* text=auto eol=lf
+
+# Binary assets ? never transform these.
+*.png binary
+*.jpg binary
+*.gif binary
+*.mp4 binary
+*.npz binary
+*.zip binary

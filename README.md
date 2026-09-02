@@ -1,6 +1,6 @@
 # Missile Intercept Tracker
 
-[![CI](https://github.com/OWNER/missile-intercept-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/missile-intercept-tracker/actions/workflows/ci.yml)
+[![CI](https://github.com/AlexF0643/missile-intercept-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/AlexF0643/missile-intercept-tracker/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -43,7 +43,7 @@ the project.
 ## Install
 
 ```bash
-git clone https://github.com/OWNER/missile-intercept-tracker.git
+git clone https://github.com/AlexF0643/missile-intercept-tracker.git
 cd missile-intercept-tracker
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
