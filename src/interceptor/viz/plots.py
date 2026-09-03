@@ -29,6 +29,7 @@ series is also directly labelled.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
@@ -44,14 +45,34 @@ if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
-__all__ = ["Theme", "plot_engagement", "save_engagement"]
+__all__ = [
+    "LawRun",
+    "Theme",
+    "plot_comparison",
+    "plot_engagement",
+    "save_comparison",
+    "save_engagement",
+]
 
 _G: Final = 9.80665
 
 
 @dataclass(frozen=True)
 class Theme:
-    """Colours for one rendering mode. Both are validated against their surface."""
+    """Colours for one rendering mode. Both are validated against their surface.
+
+    ``laws`` is the fixed order in which guidance laws are coloured when several
+    are compared on one figure. Slots are assigned by position and never cycled.
+
+    There are deliberately only two. Adding a third means finding a hue that
+    separates from *both* the target's blue and the first law's orange, in both
+    modes, across all pairs rather than adjacent ones — and the obvious
+    candidates fail: violet collides with blue under protanopia (ΔE 1.9 in dark
+    mode), magenta and yellow both collide with orange for normal vision. Aqua
+    survives, at the cost of a light-mode contrast warning that the direct
+    labels on every series discharge. A fourth slot needs the validator run
+    again, not a hue picked by eye.
+    """
 
     surface: str
     text: str
@@ -60,6 +81,7 @@ class Theme:
     missile: str
     target: str
     limit: str
+    laws: tuple[str, ...]
 
 
 LIGHT = Theme(
@@ -70,6 +92,7 @@ LIGHT = Theme(
     missile="#eb6834",
     target="#2a78d6",
     limit="#8a8a85",
+    laws=("#eb6834", "#1baf7a"),
 )
 
 DARK = Theme(
@@ -80,6 +103,7 @@ DARK = Theme(
     missile="#d95926",
     target="#3987e5",
     limit="#7e7e78",
+    laws=("#d95926", "#199e70"),
 )
 
 THEMES: Final[dict[str, Theme]] = {"light": LIGHT, "dark": DARK}
@@ -345,6 +369,174 @@ def save_engagement(
     figure = plot_engagement(
         result, missile=missile, target=target, intercept=intercept, title=title, theme=theme
     )
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(destination, facecolor=figure.get_facecolor(), bbox_inches="tight")
+    plt.close(figure)
+    return destination
+
+
+@dataclass(frozen=True)
+class LawRun:
+    """One guidance law's result, ready to be compared against another's."""
+
+    label: str
+    result: RunResult
+    intercept: Intercept | None
+
+
+def plot_comparison(
+    runs: Sequence[LawRun],
+    *,
+    missile: str = "missile",
+    target: str = "target",
+    title: str | None = None,
+    theme: str = "light",
+) -> Figure:
+    """Compare several guidance laws flown on the same scenario.
+
+    Three panels: the plan view, which shows the *shape* of each law's solution
+    and is the panel that actually explains the difference; separation against
+    time; and achieved lateral acceleration, which answers whether a better
+    intercept was bought with more effort or less.
+
+    Raises:
+        ValueError: if there are more laws than validated colour slots. The
+            palette is fixed and checked, not generated — see :class:`Theme`.
+    """
+    import matplotlib.pyplot as plt
+
+    if theme not in THEMES:
+        msg = f"theme must be one of {sorted(THEMES)}, got {theme!r}"
+        raise ValueError(msg)
+    palette = THEMES[theme]
+
+    if not runs:
+        msg = "nothing to compare"
+        raise ValueError(msg)
+    if len(runs) > len(palette.laws):
+        msg = (
+            f"{len(runs)} laws but only {len(palette.laws)} validated colour slots; "
+            "add a slot to Theme.laws and re-run the palette validator"
+        )
+        raise ValueError(msg)
+
+    figure = plt.figure(figsize=(13.0, 8.5), dpi=110, facecolor=palette.surface)
+    grid = figure.add_gridspec(2, 2, hspace=0.34, wspace=0.22, top=0.87, bottom=0.08)
+
+    # The plan view takes the full-height left column rather than a wide strip
+    # across the top. An engagement is typically much longer downrange than it
+    # is wide, so a tall box fits the data under equal aspect without either
+    # distorting the geometry or leaving most of the panel empty.
+    plan = figure.add_subplot(grid[:, 0])
+    separation = figure.add_subplot(grid[0, 1])
+    acceleration = figure.add_subplot(grid[1, 1])
+
+    # The target's path is the same in every run, so draw it once.
+    reference = runs[0].result.recorder.position(target)
+    plan.plot(reference[:, 0], reference[:, 1], color=palette.target, linewidth=2.0)
+    plan.annotate(
+        "Target",
+        (reference[0, 0], reference[0, 1]),
+        textcoords="offset points",
+        xytext=(10, 8),
+        color=palette.text,
+        fontsize=9.5,
+        fontweight="bold",
+    )
+
+    for index, run_ in enumerate(runs):
+        colour = palette.laws[index]
+        record = run_.result.recorder
+        path = record.position(missile)
+        miss = "" if run_.intercept is None else f" · {run_.intercept.miss_distance:.2f} m"
+
+        plan.plot(path[:, 0], path[:, 1], color=colour, linewidth=2.2, label=run_.label + miss)
+        plan.plot(
+            path[-1, 0],
+            path[-1, 1],
+            "x",
+            color=colour,
+            markersize=11,
+            markeredgewidth=2.2,
+        )
+
+        separation.semilogy(
+            record.time,
+            np.maximum(record.separation(target, missile), 1e-3),
+            color=colour,
+            linewidth=2.0,
+            label=run_.label,
+        )
+        acceleration.plot(
+            record.time,
+            record.achieved(missile) / _G,
+            color=colour,
+            linewidth=2.0,
+            label=run_.label,
+        )
+
+    plan.plot(
+        reference[0, 0],
+        reference[0, 1],
+        "o",
+        color=palette.target,
+        markersize=8,
+        markerfacecolor=palette.surface,
+        markeredgewidth=2,
+    )
+    # "box" rather than "datalim": this panel spans the full figure width, and
+    # padding the data limits to fill it would stretch a 3 km engagement across
+    # a 17 km axis. Shrinking the axes box instead keeps the scale honest and
+    # the tick labels meaningful.
+    plan.set_aspect("equal", adjustable="box")
+
+    for axis, xlabel, ylabel, heading, corner in (
+        (plan, "East (m)", "North (m)", "Plan view — the shape of each solution", "lower right"),
+        (separation, "Time (s)", "Separation (m)", "Range to target", "best"),
+        (
+            acceleration,
+            "Time (s)",
+            "Lateral acceleration (g)",
+            "Acceleration actually used",
+            "best",
+        ),
+    ):
+        legend = axis.legend(frameon=False, fontsize=9, loc=corner)
+        for text in legend.get_texts():
+            text.set_color(palette.text)
+        _style(axis, palette, xlabel, ylabel, heading)
+
+    figure.suptitle(
+        title if title is not None else "Guidance law comparison",
+        color=palette.text,
+        fontsize=15,
+        fontweight="bold",
+        x=0.055,
+        ha="left",
+        y=0.955,
+    )
+    summary = "   ".join(
+        f"{r.label}: {'—' if r.intercept is None else f'{r.intercept.miss_distance:.2f} m'}"
+        for r in runs
+    )
+    figure.text(0.055, 0.915, summary, color=palette.muted, fontsize=10.5, ha="left")
+    return figure
+
+
+def save_comparison(
+    runs: Sequence[LawRun],
+    path: str | Path,
+    *,
+    missile: str = "missile",
+    target: str = "target",
+    title: str | None = None,
+    theme: str = "light",
+) -> Path:
+    """Render the comparison figure and write it to ``path``."""
+    import matplotlib.pyplot as plt
+
+    figure = plot_comparison(runs, missile=missile, target=target, title=title, theme=theme)
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(destination, facecolor=figure.get_facecolor(), bbox_inches="tight")

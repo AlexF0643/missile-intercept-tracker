@@ -9,7 +9,31 @@ manoeuvring target a hundred times a second, a filter turns those measurements
 into a track, and a proportional-navigation law turns that track into steering
 commands — rendered live in 3D.
 
-> **Status: Phase 1.** World, integrator and ballistics. No guidance yet.
+> **Status: Phase 3.** Proportional navigation, flown on perfect information.
+
+![Pure pursuit against proportional navigation on a crossing target](docs/assets/comparison-crossing.png)
+
+Same missile, same target, same data — only the guidance law differs. Pure
+pursuit steers at where the target *is* and ends up in a tail chase, missing by
+**40.8 m**. Proportional navigation steers to stop the *bearing* drifting, flies
+inside that arc to a point ahead of the target, and misses by **0.03 m**.
+
+And it does so using less acceleration, not more: PN spends 7.8 g early to set
+up the geometry and then coasts at 3.5 g, while pursuit ramps to 13 g in the
+last two seconds and still arrives behind.
+
+```bash
+python examples/compare_laws.py   # the figure above, for all three geometries
+python examples/pursuit.py        # one law, five diagnostic panels
+python examples/ballistic.py      # unguided flight, vacuum vs drag
+```
+
+```
+crossing
+  law                 miss (m)   peak demand   peak used    arrival
+  PurePursuit           40.757       217.4 g      13.2 g      535 m/s
+  ProNav (N=3)           0.030       816.4 g       7.8 g      531 m/s
+```
 
 ## Why this exists
 
@@ -32,9 +56,9 @@ the project.
 | Phase | Scope | Exit criterion | Status |
 | :---- | :---- | :------------- | :----- |
 | 0 | Scaffolding, lint, types, CI | Green CI on an empty project | ✅ |
-| 1 | World, RK4 integrator, ballistics | Drag-free launch matches the analytic parabola to 1e-6 over 10 s | ⬜ |
-| 2 | Pure pursuit on truth data | First intercept against a non-manoeuvring target | ⬜ |
-| 3 | Proportional navigation on truth data | ≥10× lower miss distance than pursuit on a crossing target | ⬜ |
+| 1 | World, RK4 integrator, ballistics | Drag-free launch matches the analytic parabola to 1e-6 over 10 s | ✅ 3.4e-10 m |
+| 2 | Pure pursuit on truth data | First intercept against a non-manoeuvring target | ✅ 3.2 m head-on |
+| 3 | Proportional navigation on truth data | ≥10× lower miss distance than pursuit on a crossing target | ✅ 1350× |
 | 4 | Seeker: frames, FOV/gimbal gating, noise, dropouts | Monotonic noise-vs-miss-distance sweep | ⬜ |
 | 5 | Estimation: alpha-beta, then EKF | Within 2× of the perfect-information baseline; survives a 0.5 s dropout | ⬜ |
 | 6 | Real-time 3D viewer | A recording good enough to head this README | ⬜ |
@@ -53,8 +77,9 @@ pre-commit install
 ## Develop
 
 ```bash
-pytest                    # full suite
-pytest -m "not gui"       # what CI runs
+pip install -e ".[dev,viz]"   # viz adds matplotlib for the diagnostic figures
+pytest                        # full suite
+pytest -m "not gui"           # what CI runs
 ruff check . && ruff format .
 mypy
 ```
