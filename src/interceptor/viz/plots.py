@@ -50,8 +50,10 @@ __all__ = [
     "Theme",
     "plot_comparison",
     "plot_engagement",
+    "plot_noise_sweep",
     "save_comparison",
     "save_engagement",
+    "save_noise_sweep",
 ]
 
 _G: Final = 9.80665
@@ -537,6 +539,133 @@ def save_comparison(
     import matplotlib.pyplot as plt
 
     figure = plot_comparison(runs, missile=missile, target=target, title=title, theme=theme)
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(destination, facecolor=figure.get_facecolor(), bbox_inches="tight")
+    plt.close(figure)
+    return destination
+
+
+def plot_noise_sweep(
+    angle_sigmas_mrad: Sequence[float],
+    misses: Vector,
+    *,
+    lethal_radius: float = 5.0,
+    baseline: float | None = None,
+    title: str | None = None,
+    theme: str = "light",
+) -> Figure:
+    """Miss distance against seeker angle noise, on log-log axes.
+
+    Args:
+        angle_sigmas_mrad: The noise levels swept, in milliradians.
+        misses: Shape ``(len(angle_sigmas_mrad), seeds)``. Every seed is drawn
+            as a band around the median, because a single seed of a stochastic
+            process is an anecdote.
+        lethal_radius: Drawn as a threshold — above this line the engagement
+            failed, whatever the trend looks like.
+        baseline: Miss distance on perfect information, if known. Drawn as the
+            floor the sweep is degrading away from.
+
+    Log-log because both axes span orders of magnitude, and because a power law
+    plots as a straight line there — the slope then reads directly as "miss
+    distance grows as roughly the square of angle noise", which is the finding.
+    """
+    import matplotlib.pyplot as plt
+
+    if theme not in THEMES:
+        msg = f"theme must be one of {sorted(THEMES)}, got {theme!r}"
+        raise ValueError(msg)
+    palette = THEMES[theme]
+
+    sigmas = np.asarray(angle_sigmas_mrad, dtype=np.float64)
+    data = np.atleast_2d(np.asarray(misses, dtype=np.float64))
+    if data.shape[0] != sigmas.size:
+        msg = f"expected {sigmas.size} rows of misses, got {data.shape[0]}"
+        raise ValueError(msg)
+
+    median = np.median(data, axis=1)
+
+    figure = plt.figure(figsize=(9.0, 6.2), dpi=110, facecolor=palette.surface)
+    ax = figure.add_subplot(111)
+
+    ax.fill_between(
+        sigmas,
+        data.min(axis=1),
+        data.max(axis=1),
+        color=palette.missile,
+        alpha=0.18,
+        linewidth=0,
+    )
+    ax.plot(sigmas, median, color=palette.missile, linewidth=2.4, marker="o", markersize=7)
+
+    ax.axhline(lethal_radius, color=palette.limit, linewidth=1.6, linestyle="--")
+    ax.annotate(
+        f"lethal radius {lethal_radius:.0f} m — above this line the engagement failed",
+        (sigmas[0], lethal_radius),
+        textcoords="offset points",
+        xytext=(4, 6),
+        color=palette.text,
+        fontsize=9,
+    )
+
+    if baseline is not None and baseline > 0.0:
+        ax.axhline(baseline, color=palette.target, linewidth=1.4, linestyle=":")
+        ax.annotate(
+            f"perfect information: {baseline:.2f} m",
+            (sigmas[0], baseline),
+            textcoords="offset points",
+            xytext=(4, 6),
+            color=palette.text,
+            fontsize=9,
+        )
+
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    # The figure heading names the chart, so the axes title would only repeat it.
+    _style(ax, palette, "Seeker angle noise, one sigma (mrad)", "Miss distance (m)", "")
+    figure.suptitle(
+        title if title is not None else "Seeker noise sweep",
+        color=palette.text,
+        fontsize=15,
+        fontweight="bold",
+        x=0.02,
+        ha="left",
+        y=0.975,
+    )
+    figure.text(
+        0.02,
+        0.905,
+        "Band spans every random seed; the line is the median.",
+        color=palette.muted,
+        fontsize=10,
+        ha="left",
+    )
+    figure.subplots_adjust(top=0.855, bottom=0.1, left=0.1, right=0.97)
+    return figure
+
+
+def save_noise_sweep(
+    angle_sigmas_mrad: Sequence[float],
+    misses: Vector,
+    path: str | Path,
+    *,
+    lethal_radius: float = 5.0,
+    baseline: float | None = None,
+    title: str | None = None,
+    theme: str = "light",
+) -> Path:
+    """Render the noise sweep and write it to ``path``."""
+    import matplotlib.pyplot as plt
+
+    figure = plot_noise_sweep(
+        angle_sigmas_mrad,
+        misses,
+        lethal_radius=lethal_radius,
+        baseline=baseline,
+        title=title,
+        theme=theme,
+    )
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(destination, facecolor=figure.get_facecolor(), bbox_inches="tight")

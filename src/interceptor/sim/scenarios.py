@@ -33,7 +33,8 @@ from interceptor.core.world import World, WorldConfig
 from interceptor.entities.missile import Missile
 from interceptor.entities.target import Manoeuvre, Target, straight_and_level
 from interceptor.guidance.base import GuidanceLaw
-from interceptor.sensing.track import TruthTrack
+from interceptor.sensing.seeker import GeometricSeeker, SeekerConfig
+from interceptor.sensing.track import SeekerTrack, TrackSource, TruthTrack
 from interceptor.sim.intercept import ClosestApproach
 
 __all__ = ["Scenario", "crossing", "head_on", "tail_chase"]
@@ -67,12 +68,24 @@ class Scenario:
         """A copy of this scenario with a different target manoeuvre."""
         return replace(self, manoeuvre=manoeuvre)
 
-    def build(self, law: GuidanceLaw | None = None) -> tuple[World, ClosestApproach]:
+    def build(
+        self,
+        law: GuidanceLaw | None = None,
+        *,
+        seeker: SeekerConfig | None = None,
+        seed: int = 0,
+    ) -> tuple[World, ClosestApproach]:
         """Construct the world and the closest-approach detector.
 
-        Passing ``law=None`` builds an unguided missile, which is how the tests
-        confirm that an intercept is caused by the guidance rather than by a
-        fortunate initial aim.
+        Args:
+            law: The guidance law. ``None`` builds an unguided missile, which is
+                how the tests confirm an intercept comes from the guidance
+                rather than from a fortunate initial aim.
+            seeker: Seeker error budget. ``None`` gives the guidance law perfect
+                information — the Phase 3 baseline that every degraded
+                configuration is measured against.
+            seed: Seeds the seeker's random generator. Two runs with the same
+                seed are identical bit for bit; a Monte Carlo sweep varies it.
         """
         world = World(WorldConfig())
 
@@ -82,6 +95,16 @@ class Scenario:
             self.manoeuvre,
         )
         world.add(target)
+
+        track_source: TrackSource | None = None
+        if law is not None:
+            # The track source holds the target entity, so it reports the
+            # target's live position rather than a stale copy.
+            track_source = (
+                TruthTrack(target)
+                if seeker is None
+                else SeekerTrack(GeometricSeeker(seeker, np.random.default_rng(seed)), target)
+            )
 
         world.add(
             Missile(
@@ -94,9 +117,7 @@ class Scenario:
                 motor=self.motor,
                 aero=self.aero,
                 guidance=law,
-                # The track source holds the target entity, so it reports the
-                # target's live position rather than a stale copy.
-                track_source=TruthTrack(target) if law is not None else None,
+                track_source=track_source,
                 autopilot=Autopilot(self.autopilot_lag),
             )
         )

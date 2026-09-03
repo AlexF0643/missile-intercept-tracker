@@ -9,7 +9,22 @@ manoeuvring target a hundred times a second, a filter turns those measurements
 into a track, and a proportional-navigation law turns that track into steering
 commands — rendered live in 3D.
 
-> **Status: Phase 3.** Proportional navigation, flown on perfect information.
+> **Status: Phase 4.** The missile now sees the target only through a noisy seeker.
+
+![Miss distance against seeker angle noise](docs/assets/seeker-noise-sweep.png)
+
+Everything through Phase 3 fed the guidance law perfect information. Phase 4
+takes it away: 2 mrad of angle noise, glint, Doppler noise, a gimbal limit,
+one frame of latency, and dropouts below the detection threshold.
+
+Proportional navigation holds up to about **0.2 mrad** and comes apart
+completely by 2 — a median miss of **1577 m** where perfect information gave
+0.03. Miss distance grows as roughly the *square* of angle noise.
+
+Nothing about the guidance law changed. What changed is that relative velocity
+is now obtained by differencing two noisy positions 10 ms apart, which
+multiplies the measurement error by a hundred. Phase 5 puts an estimator in
+that gap.
 
 ![Pure pursuit against proportional navigation on a crossing target](docs/assets/comparison-crossing.png)
 
@@ -23,7 +38,8 @@ up the geometry and then coasts at 3.5 g, while pursuit ramps to 13 g in the
 last two seconds and still arrives behind.
 
 ```bash
-python examples/compare_laws.py   # the figure above, for all three geometries
+python examples/seeker_sweep.py   # the noise sweep above
+python examples/compare_laws.py   # pursuit vs PN, all three geometries
 python examples/pursuit.py        # one law, five diagnostic panels
 python examples/ballistic.py      # unguided flight, vacuum vs drag
 ```
@@ -59,7 +75,7 @@ the project.
 | 1 | World, RK4 integrator, ballistics | Drag-free launch matches the analytic parabola to 1e-6 over 10 s | ✅ 3.4e-10 m |
 | 2 | Pure pursuit on truth data | First intercept against a non-manoeuvring target | ✅ 3.2 m head-on |
 | 3 | Proportional navigation on truth data | ≥10× lower miss distance than pursuit on a crossing target | ✅ 1350× |
-| 4 | Seeker: frames, FOV/gimbal gating, noise, dropouts | Monotonic noise-vs-miss-distance sweep | ⬜ |
+| 4 | Seeker: frames, gimbal gating, noise, dropouts | Monotonic noise-vs-miss-distance sweep | ✅ 0.02 m → 1577 m |
 | 5 | Estimation: alpha-beta, then EKF | Within 2× of the perfect-information baseline; survives a 0.5 s dropout | ⬜ |
 | 6 | Real-time 3D viewer | A recording good enough to head this README | ⬜ |
 | 7 | Manoeuvring targets, augmented PN, Monte Carlo | Miss-distance distribution over 1000 runs | ⬜ |

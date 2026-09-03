@@ -20,8 +20,9 @@ import numpy as np
 
 from interceptor.core.state import EntityState, Vector
 from interceptor.core.world import Entity
+from interceptor.sensing.seeker import Measurement, Seeker, relative_position_from
 
-__all__ = ["Track", "TrackSource", "TruthTrack"]
+__all__ = ["SeekerTrack", "Track", "TrackSource", "TruthTrack"]
 
 _EPS = 1e-12
 
@@ -146,5 +147,73 @@ class TruthTrack(TrackSource):
             time=t,
             relative_position=target.pos - missile.pos,
             relative_velocity=target.vel - missile.vel,
+            valid=True,
+        )
+
+
+class SeekerTrack(TrackSource):
+    """A track built from seeker measurements, with no estimator behind it.
+
+    This is the naive implementation, and it is deliberately naive. It rebuilds
+    the relative position from each measurement and then obtains relative
+    velocity by *differencing successive positions* — which is the obvious thing
+    to do and very nearly the worst.
+
+    Differencing amplifies noise by one over the timestep. At 100 Hz that is a
+    factor of a hundred: a 2 mrad angle error at 5 km is 10 m of cross-range
+    error, and differencing two such errors 10 ms apart implies a relative
+    velocity wrong by hundreds of metres per second. Proportional navigation
+    then multiplies that by the navigation constant and the closing speed, and
+    commands the airframe accordingly.
+
+    The result is a missile that flails. That is the Phase 4 finding, and it is
+    what the estimator in Phase 5 exists to fix — the same seeker, the same
+    guidance law, with something sensible in between.
+
+    Dropouts are reported as an invalid track and the guidance law is expected
+    to coast. Nothing is extrapolated here; inventing data to cover a gap is the
+    estimator's job, and it does not exist yet.
+    """
+
+    def __init__(self, seeker: Seeker, target: Entity) -> None:
+        self.seeker = seeker
+        self.target = target
+        self.latest: Measurement | None = None
+        self._previous_position: Vector | None = None
+        self._previous_time: float | None = None
+        self._previous_velocity: Vector = np.zeros(3, dtype=np.float64)
+
+    def update(self, t: float, missile: EntityState) -> Track:
+        measurement = self.seeker.measure(t, missile, self.target.state)
+        self.latest = measurement
+
+        if not measurement.valid:
+            # Drop the differencing history: resuming after a gap with a stale
+            # position would produce one enormous bogus velocity.
+            self._previous_position = None
+            self._previous_time = None
+            return Track(
+                time=t,
+                relative_position=np.zeros(3, dtype=np.float64),
+                relative_velocity=np.zeros(3, dtype=np.float64),
+                valid=False,
+            )
+
+        position = relative_position_from(measurement, missile)
+
+        velocity = self._previous_velocity
+        if self._previous_position is not None and self._previous_time is not None:
+            interval = t - self._previous_time
+            if interval > _EPS:
+                velocity = (position - self._previous_position) / interval
+
+        self._previous_position = position
+        self._previous_time = t
+        self._previous_velocity = velocity
+
+        return Track(
+            time=t,
+            relative_position=position,
+            relative_velocity=velocity,
             valid=True,
         )

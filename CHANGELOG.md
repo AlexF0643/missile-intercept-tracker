@@ -8,6 +8,22 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Phase 4 — the seeker. `GeometricSeeker` computes the true geometry and then
+  degrades it: glint applied as a metre-scale wander of the apparent centre (so
+  its angular effect grows as range falls), Gaussian noise on range, both
+  angles and Doppler, gimbal gating, detection against an `R^-4` signal-to-noise
+  law with cross-section scintillation, and a one-frame processing delay.
+  `SeekerTrack` reconstructs world-frame relative position from the measured
+  range and angles, and — deliberately naively — differences successive
+  positions for relative velocity.
+- Phase 4 exit criterion met: miss distance rises monotonically from 0.02 m at
+  0.02 mrad of angle noise to 1577 m at a realistic 2 mrad, as roughly the
+  square of the noise. Proportional navigation survives to about 0.2 mrad.
+- `SeekerConfig.perfect()` runs the whole measurement chain with every error
+  zeroed. It reproduces the truth-data baseline to 0.013 m, which is what
+  proves the frame reconstruction is correct and the degradation above is
+  caused by noise rather than by a sign error in the plumbing.
+
 - Phase 3 — proportional navigation. `a = N * V_c * (Omega x r_hat)` in vector
   form, projected perpendicular to the missile velocity (pure PN rather than
   true PN, since an aerodynamic missile can only generate force at right angles
