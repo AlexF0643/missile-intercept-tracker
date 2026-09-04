@@ -101,7 +101,13 @@ docstring-code-format = true
 # Types
 # --------------------------------------------------------------------------
 [tool.mypy]
-python_version = "3.11"
+# 3.12 rather than the 3.11 support floor, because numpy's own .pyi stubs use
+# PEP 695 `type` statements from 2.5 onwards and mypy refuses to parse them
+# when told to target 3.11 — it fails inside numpy before reaching any of this
+# project's code. Real 3.11 compatibility is still enforced, and by better
+# means than a type checker: ruff's target-version below is py311, and the CI
+# matrix runs the whole suite on a genuine 3.11 interpreter.
+python_version = "3.12"
 files = ["src", "tests"]
 strict = true
 warn_unreachable = true

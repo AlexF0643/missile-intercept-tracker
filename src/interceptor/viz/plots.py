@@ -32,7 +32,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Literal
 
 import numpy as np
 
@@ -57,6 +57,13 @@ __all__ = [
     "save_estimator_comparison",
     "save_noise_sweep",
 ]
+
+#: Legend corner. matplotlib's stubs narrow ``loc`` to a literal union, so a
+#: value that reaches ``legend()`` through a loop variable has to keep that
+#: narrower type — plain ``str`` no longer matches. Listing only the corners
+#: actually used means adding a third one is a type error until it is declared
+#: here, which is the behaviour worth having.
+LegendLocation = Literal["best", "lower right"]
 
 _G: Final = 9.80665
 
@@ -510,7 +517,7 @@ def plot_comparison(
     # the tick labels meaningful.
     plan.set_aspect("equal", adjustable="box")
 
-    for axis, xlabel, ylabel, heading, corner in (
+    panels: tuple[tuple[Axes, str, str, str, LegendLocation], ...] = (
         (plan, "East (m)", "North (m)", "Plan view — the shape of each solution", "lower right"),
         (separation, "Time (s)", "Separation (m)", "Range to target", "best"),
         (
@@ -520,7 +527,8 @@ def plot_comparison(
             "Acceleration actually used",
             "best",
         ),
-    ):
+    )
+    for axis, xlabel, ylabel, heading, corner in panels:
         legend = axis.legend(frameon=False, fontsize=9, loc=corner)
         for text in legend.get_texts():
             text.set_color(palette.text)

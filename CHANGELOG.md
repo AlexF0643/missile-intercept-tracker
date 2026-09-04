@@ -52,6 +52,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- CI's lint job no longer fails on a fresh dependency install. mypy was told to
+  target Python 3.11, and numpy's own `.pyi` stubs use PEP 695 `type` statements
+  from 2.5 onwards, which mypy refuses to parse under that target — so it failed
+  inside numpy before reaching any project code. The type-check target is now
+  3.12; genuine 3.11 compatibility is enforced by ruff's `target-version` and by
+  the CI matrix running the full suite on a real 3.11 interpreter, which are
+  better guarantees than a checker's syntax level anyway. This was latent from
+  the moment numpy 2.5 shipped and had nothing to do with Phase 5.
+- `plot_comparison` passes its legend corner as a `Literal` rather than a bare
+  `str`. matplotlib 3.11 narrowed `loc` in its stubs, and a value reaching
+  `legend()` through a loop variable had widened to `str`.
+
 - The plotting module no longer touches `matplotlib.pyplot`. `pyplot.figure()`
   routes through the active backend, which on a desktop machine opens a GUI
   window — pointless for a module that only writes PNG files, and a hard
