@@ -9,8 +9,26 @@ manoeuvring target a hundred times a second, a filter turns those measurements
 into a track, and a proportional-navigation law turns that track into steering
 commands — rendered live in 3D.
 
-> **Status: Phase 5.** A filter between the seeker and the guidance law turns a
-> 1.5 km miss into a hit.
+> **Status: Phase 6.** Engagements can now be watched rather than only plotted.
+
+![A 7 g break turn intercepted, rendered in 3D](docs/assets/flight.gif)
+
+A target flying straight, breaking hard at 7 g eight seconds in, and being
+intercepted anyway — 2.9 m from a round guided by a 2 mrad seeker and an
+extended Kalman filter. The endgame plays at quarter speed because at Mach 2 the
+last hundred metres take under a tenth of a second.
+
+Watch the line-of-sight rate on the readout. Proportional navigation works by
+holding it steady while the range falls, and it runs away at the very end
+because `Omega = (r x v) / (r . r)` has the range squared underneath it — which
+is why terminal guidance saturates however much airframe you give it.
+
+```bash
+interceptor record break-turn -o flight.gif   # the animation above
+interceptor view break-turn                   # the same thing, live and orbitable
+```
+
+## The filter that makes it possible
 
 ![Miss distance by estimator against three target behaviours](docs/assets/estimator-comparison.png)
 
@@ -92,7 +110,16 @@ interceptor show crossing                     # describe one without flying it
 interceptor run crossing --seed 3             # fly it
 interceptor sweep crossing --seeds 20         # fly it 20 times, report the spread
 interceptor run crossing --figure out.png     # five-panel diagnostic
+interceptor record crossing -o flight.gif     # 3D animation
+interceptor view crossing                     # live, orbitable 3D window
 ```
+
+The viewer comes in two halves for a reason. `record` writes a file with
+matplotlib and needs only the `viz` extra, so it works on a build server and its
+output can be checked by a test. `view` opens a real WebGL scene through VPython
+(`pip install -e ".[live]"`) that you can orbit with a mouse while the
+engagement plays. Both drive the same scene model, so they cannot disagree about
+where anything is.
 
 To make your own, copy one and edit it:
 
@@ -193,7 +220,7 @@ it.
 | 3 | Proportional navigation on truth data | ≥10× lower miss distance than pursuit on a crossing target | ✅ 1350× |
 | 4 | Seeker: frames, gimbal gating, noise, dropouts | Monotonic noise-vs-miss-distance sweep | ✅ 0.02 m → 1577 m |
 | 5 | Estimation: alpha-beta, then EKF | Inside the 5 m lethal radius on a realistic seeker; survives a 0.5 s dropout | ✅ 1577 m → 0.88 m |
-| 6 | Real-time 3D viewer | A recording good enough to head this README | ⬜ |
+| 6 | Real-time 3D viewer | A recording good enough to head this README | ✅ above |
 | 7 | Manoeuvring targets, augmented PN, Monte Carlo | Miss-distance distribution over 1000 runs | ⬜ |
 
 Phase 5's exit criterion was originally written as *"within 2× of the

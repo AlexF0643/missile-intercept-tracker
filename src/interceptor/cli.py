@@ -4,6 +4,8 @@
     interceptor show crossing
     interceptor run crossing --seed 3
     interceptor run my-scenario.toml --figure out.png
+    interceptor record crossing -o flight.gif
+    interceptor view crossing
     interceptor sweep crossing --seeds 20
 
 **Why argparse and not Typer.** The plan said Typer, and Typer is pleasant. It
@@ -25,11 +27,16 @@ import argparse
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from interceptor.config import ConfigError, EngagementSpec, bundled_names, load, load_bundled
-from interceptor.sim.engagement import run
+from interceptor.sim.engagement import RunResult, run
+from interceptor.sim.intercept import Intercept
+
+if TYPE_CHECKING:
+    from interceptor.viz.scene import Storyboard
 
 __all__ = ["main"]
 
@@ -47,7 +54,7 @@ def _resolve(reference: str) -> EngagementSpec:
     return load_bundled(reference)
 
 
-def _fly(spec: EngagementSpec, seed: int) -> tuple[object, object]:
+def _fly(spec: EngagementSpec, seed: int) -> tuple[RunResult, Intercept | None]:
     world, detector = spec.build(seed=seed)
     result = run(world, duration=spec.scenario.duration, dt=PHYSICS_STEP, stop=detector)
     return result, detector.result
@@ -118,10 +125,10 @@ def _command_run(args: argparse.Namespace) -> int:
         print("no closest approach within the scenario duration — the missile never got near")
         return 1
 
-    miss = intercept.miss_distance  # type: ignore[attr-defined]
-    hit = intercept.hit  # type: ignore[attr-defined]
+    miss = intercept.miss_distance
+    hit = intercept.hit
     print(f"  miss distance   {miss:>10.3f} m   {'HIT' if hit else 'miss'}")
-    print(f"  at              {intercept.time:>10.3f} s")  # type: ignore[attr-defined]
+    print(f"  at              {intercept.time:>10.3f} s")
 
     if args.figure:
         try:
@@ -130,12 +137,83 @@ def _command_run(args: argparse.Namespace) -> int:
             print("\ncannot draw a figure without matplotlib: pip install -e '.[viz]'")
             return 1
         path = save_engagement(
-            result,  # type: ignore[arg-type]
+            result,
             args.figure,
-            intercept=intercept,  # type: ignore[arg-type]
+            intercept=intercept,
             title=f"{spec.name} — {_describe(spec)}",
         )
         print(f"  figure          {path}")
+    return 0
+
+
+def _storyboard(
+    spec: EngagementSpec, args: argparse.Namespace
+) -> tuple[Storyboard, Intercept | None]:
+    """Fly the engagement and turn it into frames."""
+    from interceptor.viz.scene import storyboard_from
+
+    result, intercept = _fly(spec, args.seed)
+    slow_from: float | None = None
+    if args.slow_motion and intercept is not None:
+        # The endgame is what anybody watches for and it is over in moments.
+        slow_from = max(intercept.time - 1.5, 0.0)
+    # A shorter title than `run` prints: this one has to fit inside a 578-pixel
+    # frame, and the estimator's tuning is not what a viewer is watching for.
+    estimator = "" if spec.estimator is None else type(spec.estimator()).__name__
+    law = "unguided" if spec.law is None else type(spec.law).__name__
+    if spec.seeker is None:
+        subtitle = f"{law}, perfect information"
+    else:
+        subtitle = f"{law}, {spec.seeker.angle_sigma * 1e3:g} mrad seeker, {estimator}"
+
+    return storyboard_from(
+        result,
+        fps=args.fps,
+        intercept=intercept,
+        title=f"{spec.name} — {subtitle}",
+        slow_motion_from=slow_from,
+    ), intercept
+
+
+def _command_record(args: argparse.Namespace) -> int:
+    spec = _resolve(args.scenario)
+    print(f"{spec.name}: {_describe(spec)}")
+    try:
+        from interceptor.viz.record import save_flight
+    except ImportError:
+        print("recording needs matplotlib: pip install -e '.[viz]'")
+        return 1
+
+    storyboard, intercept = _storyboard(spec, args)
+    if intercept is not None:
+        verdict = "HIT" if intercept.hit else "miss"
+        print(f"  miss distance   {intercept.miss_distance:>10.3f} m   {verdict}")
+    print(f"  frames          {len(storyboard.frames):>10}")
+
+    path = save_flight(storyboard, args.output, orbit=args.orbit)
+    print(f"  written         {path}")
+    return 0
+
+
+def _command_view(args: argparse.Namespace) -> int:
+    spec = _resolve(args.scenario)
+    print(f"{spec.name}: {_describe(spec)}")
+    try:
+        from interceptor.viz.live import view
+    except ImportError:
+        print(
+            "the live viewer needs the scene model, which needs numpy only — "
+            "this should not happen; please report it"
+        )
+        return 1
+
+    storyboard, _ = _storyboard(spec, args)
+    print(f"  {len(storyboard.frames)} frames; opening a browser window")
+    try:
+        view(storyboard, loop=args.loop)
+    except RuntimeError as error:
+        print(f"\n{error}")
+        return 1
     return 0
 
 
@@ -155,8 +233,8 @@ def _command_sweep(args: argparse.Namespace) -> int:
         _, intercept = _fly(spec, seed)
         if intercept is None:
             continue
-        misses.append(intercept.miss_distance)  # type: ignore[attr-defined]
-        hits += bool(intercept.hit)  # type: ignore[attr-defined]
+        misses.append(intercept.miss_distance)
+        hits += bool(intercept.hit)
 
     if not misses:
         print("no run produced a closest approach")
@@ -200,6 +278,36 @@ def _parser() -> argparse.ArgumentParser:
     fly.add_argument("--seed", type=int, default=0, help="seeker noise seed (default: 0)")
     fly.add_argument("--figure", type=Path, help="write a five-panel diagnostic figure here")
     fly.set_defaults(handler=_command_run)
+
+    record = commands.add_parser("record", help="write an animation of one engagement")
+    record.add_argument("scenario", help="bundled name or path to a .toml file")
+    record.add_argument("--seed", type=int, default=0, help="seeker noise seed (default: 0)")
+    record.add_argument(
+        "-o", "--output", type=Path, default=Path("flight.gif"), help="output .gif or .mp4"
+    )
+    record.add_argument("--fps", type=float, default=20.0, help="frames per second (default: 20)")
+    record.add_argument(
+        "--orbit",
+        action="store_true",
+        help="drift the camera for parallax; roughly triples the file size",
+    )
+    record.add_argument(
+        "--no-slow-motion",
+        dest="slow_motion",
+        action="store_false",
+        help="play the endgame at full speed rather than quarter speed",
+    )
+    record.set_defaults(handler=_command_record)
+
+    watch = commands.add_parser("view", help="play one engagement in an interactive 3D window")
+    watch.add_argument("scenario", help="bundled name or path to a .toml file")
+    watch.add_argument("--seed", type=int, default=0, help="seeker noise seed (default: 0)")
+    watch.add_argument("--fps", type=float, default=30.0, help="frames per second (default: 30)")
+    watch.add_argument("--loop", action="store_true", help="replay until the window is closed")
+    watch.add_argument(
+        "--no-slow-motion", dest="slow_motion", action="store_false", help="no endgame slow motion"
+    )
+    watch.set_defaults(handler=_command_view)
 
     sweep = commands.add_parser("sweep", help="fly one engagement under many seeds")
     sweep.add_argument("scenario", help="bundled name or path to a .toml file")

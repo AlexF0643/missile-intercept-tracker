@@ -8,6 +8,47 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Phase 6 — the engagement can be watched. `interceptor.viz.scene` describes
+  what to draw at each instant as plain numpy: positions, cumulative trails, the
+  sightline, and the derived readout figures. Two renderers consume it.
+  `interceptor.viz.record` writes an animated GIF or MP4 with matplotlib;
+  `interceptor.viz.live` opens an orbitable WebGL scene through VPython. Neither
+  contains geometry of its own, so they cannot disagree about where anything is,
+  and all the arithmetic sits in the one module a test can reach — a live 3D
+  window cannot be asserted about on a build server, so nothing that matters was
+  left inside one.
+- `interceptor record` and `interceptor view` fly a scenario and show it. The
+  endgame plays at quarter speed by default, because at Mach 2 the last hundred
+  metres pass in under a tenth of a second — three frames at 30 fps of the only
+  part anybody watches for.
+- Phase 6 exit criterion met: a recording good enough to head the README, which
+  is now what heads it.
+- VPython is a new optional extra, `live`, deliberately separate from `viz`. It
+  starts a web server and opens a browser tab when imported, so
+  `interceptor.viz.live` imports it inside a function and reports its absence as
+  an instruction rather than a traceback. A test asserts that importing the
+  module does not pull VPython in, because if that regresses every headless
+  Monte Carlo run pays for a viewer nobody asked for.
+- The vertical scale of a recording is exaggerated and the factor is written on
+  the axis. An air-to-air engagement is 6 km across and 150 m tall; drawn to a
+  true cube it is a smear through empty sky. The distortion is necessary, so it
+  is labelled rather than hidden.
+- `save_flight` chooses its writer before building the animation. Asking for an
+  `.mp4` on a machine without ffmpeg raised the right error, but only after
+  constructing a `FuncAnimation` that was then collected unrendered — which
+  matplotlib warns about from a destructor, so the warning surfaced as an
+  unraisable exception attributed to whichever unrelated test the garbage
+  collector happened to interrupt. Nothing is now built until there is something
+  to write with.
+- The test for that path fakes ffmpeg's absence instead of skipping when ffmpeg
+  is present. It previously skipped on the machine it was written on, so it never
+  ran there and the bug above shipped. A test that only runs on other people's
+  machines is not a test.
+- The camera is fixed by default when recording. Parallax helps a projected 3D
+  path read as depth, but a moving camera changes every background pixel on
+  every frame and a GIF stores frames as differences — the same animation is
+  1.2 MB with a fixed camera and 3.5 MB with a drifting one. Orbiting is what
+  the live viewer is for, with a mouse. `--orbit` turns it on anyway.
 - Phase 5 — estimation. `interceptor.sensing.filters` supplies two estimators
   behind a common `Estimator` interface that splits `predict` from `correct`,
   so a dropout costs the track confidence rather than the track itself.

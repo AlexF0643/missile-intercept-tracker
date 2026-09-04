@@ -43,6 +43,9 @@ interceptor = "interceptor.cli:main"
 # Plotting only. Kept out of the core dependencies so that a headless machine,
 # a CI runner or a Monte Carlo batch never has to install a drawing library.
 viz = ["matplotlib>=3.8"]
+# The live 3D viewer only. Separate from `viz` because VPython starts a web
+# server and opens a browser tab when imported, which no headless run wants.
+live = ["vpython>=7.6"]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
@@ -117,6 +120,12 @@ files = ["src", "tests"]
 strict = true
 warn_unreachable = true
 enable_error_code = ["ignore-without-code", "redundant-expr"]
+
+# VPython ships no type stubs, and it is an optional extra that CI does not
+# install. interceptor.viz.live is the only module that touches it.
+[[tool.mypy.overrides]]
+module = ["vpython.*"]
+ignore_missing_imports = true
 
 # --------------------------------------------------------------------------
 # Tests
