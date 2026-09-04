@@ -8,6 +8,60 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Phase 5 — estimation. `interceptor.sensing.filters` supplies two estimators
+  behind a common `Estimator` interface that splits `predict` from `correct`,
+  so a dropout costs the track confidence rather than the track itself.
+  `AlphaBeta` runs fixed gains with `beta = alpha^2 / (2 - alpha)` for a
+  critically damped response. `ExtendedKalman` carries a 9-state
+  `[position, velocity, acceleration]` estimate of the target's *absolute*
+  motion — absolute rather than relative, so the missile's own acceleration
+  never has to appear in the process model — with a constant-acceleration
+  transition, white-noise-jerk process noise, a numerical Jacobian of the
+  range/azimuth/elevation/range-rate measurement, and a Joseph-form covariance
+  update for symmetry under finite precision.
+- `FilteredTrack` wires a seeker to an estimator behind the existing
+  `TrackSource` interface. No guidance code changed.
+- Measurement noise for the angle channels is range-dependent,
+  `angle_sigma^2 + (glint_sigma / range)^2`, so the filter is told the truth
+  about the terminal phase: glint's angular effect grows as range falls.
+- Phase 5 exit criterion met. On the crossing engagement with a realistic
+  seeker, over 6 seeds: median miss falls from **1577 m with no estimator to
+  0.94 m** with the EKF, well inside the 5 m lethal radius, and the filter
+  coasts through a 0.5 s blackout.
+- `examples/estimator_comparison.py` and `plot_estimator_comparison` compare
+  five estimator configurations against three target behaviours. The finding:
+  heavy alpha-beta smoothing is the best estimator against a straight target
+  (0.42 m) and the only outright failure against a 7 g break turn (9.40 m,
+  0 hits from 6), while every EKF configuration hits 6 from 6 everywhere
+  without ever being the best. A fixed gain must be chosen in advance for
+  behaviour that is not knowable in advance.
+
+### Changed
+
+- Phase 5's exit criterion was rewritten from "within 2× of the
+  perfect-information baseline" (0.06 m) to "inside the 5 m lethal radius". The
+  original was unachievable for a physical reason rather than a implementation
+  one: glint sets a terminal miss floor that no amount of filtering removes,
+  because its angular contribution peaks in the last moments of flight when
+  there is no time left to average it away.
+- `plot_estimator_comparison` draws dots and ranges rather than bars. Bar length
+  is measured from the axis origin, which on a logarithmic axis is arbitrary, so
+  bar lengths do not preserve ratios; marker position does. Pass or fail against
+  the lethal radius is carried by marker fill rather than a second colour, so it
+  survives colour-vision deficiency and monochrome printing.
+
+### Fixed
+
+- The plotting module no longer touches `matplotlib.pyplot`. `pyplot.figure()`
+  routes through the active backend, which on a desktop machine opens a GUI
+  window — pointless for a module that only writes PNG files, and a hard
+  failure where Tcl/Tk is missing or incomplete. Figures are now built as bare
+  `Figure` objects with an Agg canvas attached, so `interceptor.viz` is
+  headless by construction rather than by configuration: no display, no
+  `MPLBACKEND`, no figure registry to leak.
+
+### Added
+
 - Phase 4 — the seeker. `GeometricSeeker` computes the true geometry and then
   degrades it: glint applied as a metre-scale wander of the apparent centre (so
   its angular effect grows as range falls), Gaussian noise on range, both

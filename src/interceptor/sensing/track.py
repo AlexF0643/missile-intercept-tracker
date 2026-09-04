@@ -20,9 +20,10 @@ import numpy as np
 
 from interceptor.core.state import EntityState, Vector
 from interceptor.core.world import Entity
+from interceptor.sensing.filters import Estimator
 from interceptor.sensing.seeker import Measurement, Seeker, relative_position_from
 
-__all__ = ["SeekerTrack", "Track", "TrackSource", "TruthTrack"]
+__all__ = ["FilteredTrack", "SeekerTrack", "Track", "TrackSource", "TruthTrack"]
 
 _EPS = 1e-12
 
@@ -215,5 +216,67 @@ class SeekerTrack(TrackSource):
             time=t,
             relative_position=position,
             relative_velocity=velocity,
+            valid=True,
+        )
+
+
+class FilteredTrack(TrackSource):
+    """Seeker measurements passed through an estimator.
+
+    The whole of Phase 5 in one class. Where :class:`SeekerTrack` differences
+    successive positions and amplifies the noise a hundredfold, this predicts
+    the target forward on a motion model and corrects that prediction with
+    whatever the seeker managed to see.
+
+    The ordering is the important part, and it is why the estimator interface
+    splits prediction from correction. Every cycle, *predict* — unconditionally,
+    measurement or not. Then correct, but only if there is something to correct
+    with. A dropout therefore costs the track nothing but confidence: the filter
+    keeps propagating and the guidance law keeps being served, where the naive
+    version threw the track away and the missile coasted blind.
+
+    Target acceleration is passed through to the track when the estimator can
+    supply it, which is what augmented proportional navigation will consume in
+    Phase 7. The alpha-beta filter reports zero, so APN degrades to PN behind
+    it — correctly, and without the guidance law needing to know why.
+    """
+
+    def __init__(self, seeker: Seeker, target: Entity, estimator: Estimator) -> None:
+        self.seeker = seeker
+        self.target = target
+        self.estimator = estimator
+        self.latest: Measurement | None = None
+        self.dropouts = 0
+        self._last_time: float | None = None
+
+    def update(self, t: float, missile: EntityState) -> Track:
+        measurement = self.seeker.measure(t, missile, self.target.state)
+        self.latest = measurement
+
+        interval = 0.0 if self._last_time is None else t - self._last_time
+        self._last_time = t
+        self.estimator.predict(interval)
+
+        if measurement.valid:
+            self.estimator.correct(measurement, missile)
+        else:
+            self.dropouts += 1
+
+        estimate = self.estimator.estimate()
+        if estimate is None:
+            # Nothing seen yet. Coasting straight is the honest response to
+            # having no information at all.
+            return Track(
+                time=t,
+                relative_position=np.zeros(3, dtype=np.float64),
+                relative_velocity=np.zeros(3, dtype=np.float64),
+                valid=False,
+            )
+
+        return Track(
+            time=t,
+            relative_position=estimate.position - missile.pos,
+            relative_velocity=estimate.velocity - missile.vel,
+            target_acceleration=estimate.acceleration,
             valid=True,
         )

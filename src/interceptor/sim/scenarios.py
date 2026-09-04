@@ -33,8 +33,9 @@ from interceptor.core.world import World, WorldConfig
 from interceptor.entities.missile import Missile
 from interceptor.entities.target import Manoeuvre, Target, straight_and_level
 from interceptor.guidance.base import GuidanceLaw
+from interceptor.sensing.filters import Estimator
 from interceptor.sensing.seeker import GeometricSeeker, SeekerConfig
-from interceptor.sensing.track import SeekerTrack, TrackSource, TruthTrack
+from interceptor.sensing.track import FilteredTrack, SeekerTrack, TrackSource, TruthTrack
 from interceptor.sim.intercept import ClosestApproach
 
 __all__ = ["Scenario", "crossing", "head_on", "tail_chase"]
@@ -73,6 +74,7 @@ class Scenario:
         law: GuidanceLaw | None = None,
         *,
         seeker: SeekerConfig | None = None,
+        estimator: Estimator | None = None,
         seed: int = 0,
     ) -> tuple[World, ClosestApproach]:
         """Construct the world and the closest-approach detector.
@@ -84,6 +86,10 @@ class Scenario:
             seeker: Seeker error budget. ``None`` gives the guidance law perfect
                 information — the Phase 3 baseline that every degraded
                 configuration is measured against.
+            estimator: Filter behind the seeker. ``None`` uses the naive
+                difference-successive-positions track from Phase 4, which is
+                the baseline the filters have to beat. Ignored without a
+                ``seeker``, since there is nothing to filter.
             seed: Seeds the seeker's random generator. Two runs with the same
                 seed are identical bit for bit; a Monte Carlo sweep varies it.
         """
@@ -100,11 +106,15 @@ class Scenario:
         if law is not None:
             # The track source holds the target entity, so it reports the
             # target's live position rather than a stale copy.
-            track_source = (
-                TruthTrack(target)
-                if seeker is None
-                else SeekerTrack(GeometricSeeker(seeker, np.random.default_rng(seed)), target)
-            )
+            if seeker is None:
+                track_source = TruthTrack(target)
+            else:
+                head = GeometricSeeker(seeker, np.random.default_rng(seed))
+                track_source = (
+                    SeekerTrack(head, target)
+                    if estimator is None
+                    else FilteredTrack(head, target, estimator)
+                )
 
         world.add(
             Missile(

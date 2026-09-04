@@ -30,22 +30,16 @@ def flown() -> tuple[RunResult, Intercept | None]:
 
 
 def test_figure_has_all_five_panels(flown: tuple[RunResult, Intercept | None]) -> None:
-    import matplotlib.pyplot as plt
-
     result, intercept = flown
     figure = plot_engagement(result, intercept=intercept)
     assert len(figure.axes) == 5
-    plt.close(figure)
 
 
 @pytest.mark.parametrize("theme", ["light", "dark"])
 def test_both_themes_render(flown: tuple[RunResult, Intercept | None], theme: str) -> None:
-    import matplotlib.pyplot as plt
-
     result, _ = flown
     figure = plot_engagement(result, theme=theme)
     assert figure.get_facecolor() is not None
-    plt.close(figure)
 
 
 def test_an_unknown_theme_is_rejected(flown: tuple[RunResult, Intercept | None]) -> None:

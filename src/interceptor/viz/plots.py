@@ -50,9 +50,11 @@ __all__ = [
     "Theme",
     "plot_comparison",
     "plot_engagement",
+    "plot_estimator_comparison",
     "plot_noise_sweep",
     "save_comparison",
     "save_engagement",
+    "save_estimator_comparison",
     "save_noise_sweep",
 ]
 
@@ -111,6 +113,28 @@ DARK = Theme(
 THEMES: Final[dict[str, Theme]] = {"light": LIGHT, "dark": DARK}
 
 
+def _new_figure(width: float, height: float, facecolor: str) -> Figure:
+    """Create a figure without going anywhere near pyplot.
+
+    ``matplotlib.pyplot.figure()`` routes through whichever backend is active,
+    and on a desktop that is usually an interactive one — so it opens a GUI
+    window. For a module whose entire job is writing PNG files that is at best
+    pointless, and on a machine with a missing or broken Tcl/Tk it fails
+    outright with an error that has nothing to do with plotting.
+
+    Constructing a bare ``Figure`` and attaching an Agg canvas avoids the
+    backend machinery completely. This module is then headless by construction
+    rather than by configuration: no display needed, no ``MPLBACKEND``
+    environment variable, no figure registry to leak, and nothing to close.
+    """
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure as MplFigure
+
+    figure = MplFigure(figsize=(width, height), dpi=110, facecolor=facecolor)
+    FigureCanvasAgg(figure)
+    return figure
+
+
 def _style(ax: Axes, theme: Theme, xlabel: str, ylabel: str, title: str) -> None:
     """Recessive axes and grid, so the data is the only assertive thing."""
     ax.set_facecolor(theme.surface)
@@ -148,8 +172,6 @@ def plot_engagement(
     Returns:
         The matplotlib figure, so the caller can save it or show it.
     """
-    import matplotlib.pyplot as plt
-
     if theme not in THEMES:
         msg = f"theme must be one of {sorted(THEMES)}, got {theme!r}"
         raise ValueError(msg)
@@ -160,7 +182,7 @@ def plot_engagement(
     missile_pos = record.position(missile)
     target_pos = record.position(target)
 
-    figure = plt.figure(figsize=(12.0, 11.0), dpi=110, facecolor=palette.surface)
+    figure = _new_figure(12.0, 11.0, palette.surface)
     grid = figure.add_gridspec(3, 2, hspace=0.42, wspace=0.26, top=0.90, bottom=0.06)
 
     _plan_view(figure.add_subplot(grid[0, 0]), palette, missile_pos, target_pos, intercept)
@@ -366,15 +388,12 @@ def save_engagement(
     Closes the figure afterwards, so a loop over many scenarios does not leak
     figures and trip matplotlib's open-figure warning.
     """
-    import matplotlib.pyplot as plt
-
     figure = plot_engagement(
         result, missile=missile, target=target, intercept=intercept, title=title, theme=theme
     )
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(destination, facecolor=figure.get_facecolor(), bbox_inches="tight")
-    plt.close(figure)
     return destination
 
 
@@ -406,8 +425,6 @@ def plot_comparison(
         ValueError: if there are more laws than validated colour slots. The
             palette is fixed and checked, not generated — see :class:`Theme`.
     """
-    import matplotlib.pyplot as plt
-
     if theme not in THEMES:
         msg = f"theme must be one of {sorted(THEMES)}, got {theme!r}"
         raise ValueError(msg)
@@ -423,7 +440,7 @@ def plot_comparison(
         )
         raise ValueError(msg)
 
-    figure = plt.figure(figsize=(13.0, 8.5), dpi=110, facecolor=palette.surface)
+    figure = _new_figure(13.0, 8.5, palette.surface)
     grid = figure.add_gridspec(2, 2, hspace=0.34, wspace=0.22, top=0.87, bottom=0.08)
 
     # The plan view takes the full-height left column rather than a wide strip
@@ -536,13 +553,10 @@ def save_comparison(
     theme: str = "light",
 ) -> Path:
     """Render the comparison figure and write it to ``path``."""
-    import matplotlib.pyplot as plt
-
     figure = plot_comparison(runs, missile=missile, target=target, title=title, theme=theme)
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(destination, facecolor=figure.get_facecolor(), bbox_inches="tight")
-    plt.close(figure)
     return destination
 
 
@@ -571,8 +585,6 @@ def plot_noise_sweep(
     plots as a straight line there — the slope then reads directly as "miss
     distance grows as roughly the square of angle noise", which is the finding.
     """
-    import matplotlib.pyplot as plt
-
     if theme not in THEMES:
         msg = f"theme must be one of {sorted(THEMES)}, got {theme!r}"
         raise ValueError(msg)
@@ -586,7 +598,7 @@ def plot_noise_sweep(
 
     median = np.median(data, axis=1)
 
-    figure = plt.figure(figsize=(9.0, 6.2), dpi=110, facecolor=palette.surface)
+    figure = _new_figure(9.0, 6.2, palette.surface)
     ax = figure.add_subplot(111)
 
     ax.fill_between(
@@ -656,8 +668,6 @@ def save_noise_sweep(
     theme: str = "light",
 ) -> Path:
     """Render the noise sweep and write it to ``path``."""
-    import matplotlib.pyplot as plt
-
     figure = plot_noise_sweep(
         angle_sigmas_mrad,
         misses,
@@ -669,5 +679,182 @@ def save_noise_sweep(
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(destination, facecolor=figure.get_facecolor(), bbox_inches="tight")
-    plt.close(figure)
+    return destination
+
+
+def plot_estimator_comparison(
+    results: dict[str, dict[str, Vector]],
+    *,
+    hits: dict[str, dict[str, tuple[int, int]]] | None = None,
+    lethal_radius: float = 5.0,
+    baseline: float | None = None,
+    title: str | None = None,
+    theme: str = "light",
+) -> Figure:
+    """Miss distance by estimator, one panel per target behaviour.
+
+    Args:
+        results: ``{behaviour: {estimator: array of miss distances}}``. Every
+            panel shows the same estimators in the same order.
+        hits: Optional ``{behaviour: {estimator: (hits, attempts)}}``, annotated
+            at the right of each row. Miss distance alone understates the
+            difference between an estimator that misses by 9 m every time and
+            one that misses by 9 m on average because half its runs are wild.
+        lethal_radius: Marked on each panel — a marker beyond it failed.
+        baseline: Perfect-information miss distance, if known.
+
+    Small multiples rather than grouped bars. A grouped chart would need a
+    distinct colour per estimator, and the palette has two validated
+    categorical slots, not five; splitting by panel means each panel carries a
+    single series, needs no legend, and can be read against its neighbours
+    because they share an axis. The comparison that matters here is *across*
+    panels anyway — how much each estimator degrades when the target starts
+    manoeuvring — and that reads better as three aligned charts than as
+    fifteen bars in one.
+
+    Dots and ranges rather than bars, because the axis is logarithmic. A bar
+    encodes its value as *length*, measured from wherever the axis happens to
+    start; on a log axis that origin is arbitrary, so bar lengths no longer
+    stand in any fixed ratio to the numbers — the 22:1 gap between the best and
+    worst rows below would be drawn as barely 2:1. A dot encodes its value as
+    *position*, which stays honest under any axis transform. The line running
+    from the median dot to the worst seed then costs nothing and shows the
+    spread, which is the thing a single number hides.
+
+    Marker shape carries pass or fail: filled inside the lethal radius, hollow
+    outside it. Shape rather than a second colour, so the distinction survives
+    both colour-vision deficiency and a monochrome printout.
+    """
+    if theme not in THEMES:
+        msg = f"theme must be one of {sorted(THEMES)}, got {theme!r}"
+        raise ValueError(msg)
+    palette = THEMES[theme]
+
+    if not results:
+        msg = "nothing to compare"
+        raise ValueError(msg)
+
+    behaviours = list(results)
+    estimators = list(next(iter(results.values())))
+    # Height follows the row count only. The panels sit side by side, so adding
+    # a behaviour widens the figure's content, it does not lengthen it.
+    figure = _new_figure(13.5, 2.3 + 0.62 * len(estimators), palette.surface)
+    axes = figure.subplots(1, len(behaviours), sharex=True)
+    axes = np.atleast_1d(axes)
+
+    positions = np.arange(len(estimators))
+    for ax, behaviour in zip(axes, behaviours, strict=True):
+        medians = np.array([float(np.median(results[behaviour][e])) for e in estimators])
+        worst = np.array([float(np.max(results[behaviour][e])) for e in estimators])
+
+        for y, middle, high in zip(positions, medians, worst, strict=True):
+            # Median to worst seed. Drawn first so the markers sit on top.
+            ax.plot(
+                [middle, high],
+                [y, y],
+                color=palette.missile,
+                linewidth=2.4,
+                alpha=0.35,
+                solid_capstyle="round",
+                zorder=2,
+            )
+            ax.plot(
+                [high],
+                [y],
+                marker="|",
+                color=palette.missile,
+                markersize=9,
+                markeredgewidth=2.0,
+                alpha=0.55,
+                zorder=3,
+            )
+            failed = middle > lethal_radius
+            ax.plot(
+                [middle],
+                [y],
+                marker="o",
+                markersize=9,
+                color=palette.missile,
+                markerfacecolor=palette.surface if failed else palette.missile,
+                markeredgecolor=palette.missile,
+                markeredgewidth=2.0,
+                zorder=4,
+            )
+
+        for y, value in zip(positions, medians, strict=True):
+            note = f"{value:.2f} m"
+            if hits is not None:
+                scored, attempts = hits[behaviour][estimators[y]]
+                note += f"   {scored}/{attempts}"
+            ax.annotate(
+                note,
+                (value, y),
+                textcoords="offset points",
+                xytext=(0, 11),
+                ha="center",
+                va="bottom",
+                color=palette.text,
+                fontsize=9,
+                zorder=5,
+            )
+
+        ax.axvline(lethal_radius, color=palette.limit, linewidth=1.6, linestyle="--")
+        if baseline is not None and baseline > 0.0:
+            ax.axvline(baseline, color=palette.target, linewidth=1.4, linestyle=":")
+
+        ax.set_yticks(positions)
+        ax.set_yticklabels(estimators if ax is axes[0] else [])
+        ax.set_ylim(len(estimators) - 0.4, -0.75)
+        ax.set_xscale("log")
+        ax.set_xlim(
+            min(medians.min(), baseline or medians.min()) * 0.45,
+            max(worst.max(), lethal_radius) * 3.2,
+        )
+        _style(ax, palette, "Miss distance (m)", "", behaviour)
+        ax.tick_params(axis="y", labelsize=9.5)
+        for label in ax.get_yticklabels():
+            label.set_color(palette.text)
+
+    figure.suptitle(
+        title if title is not None else "Estimator comparison",
+        color=palette.text,
+        fontsize=15,
+        fontweight="bold",
+        x=0.02,
+        ha="left",
+        y=0.98,
+    )
+    caption = (
+        "Dot is the median across seeds, tail runs to the worst"
+        + (", figures are median miss and hits scored. " if hits is not None else ". ")
+        + f"Hollow dot missed the {lethal_radius:.0f} m lethal radius (dashed)"
+        + (f"; dotted is perfect information at {baseline:.2f} m." if baseline else ".")
+    )
+    figure.text(0.02, 0.905, caption, color=palette.muted, fontsize=10, ha="left")
+    figure.subplots_adjust(top=0.76, bottom=0.13, left=0.13, right=0.98, wspace=0.12)
+    return figure
+
+
+def save_estimator_comparison(
+    results: dict[str, dict[str, Vector]],
+    path: str | Path,
+    *,
+    hits: dict[str, dict[str, tuple[int, int]]] | None = None,
+    lethal_radius: float = 5.0,
+    baseline: float | None = None,
+    title: str | None = None,
+    theme: str = "light",
+) -> Path:
+    """Render the estimator comparison and write it to ``path``."""
+    figure = plot_estimator_comparison(
+        results,
+        hits=hits,
+        lethal_radius=lethal_radius,
+        baseline=baseline,
+        title=title,
+        theme=theme,
+    )
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(destination, facecolor=figure.get_facecolor(), bbox_inches="tight")
     return destination

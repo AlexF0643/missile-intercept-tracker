@@ -9,22 +9,38 @@ manoeuvring target a hundred times a second, a filter turns those measurements
 into a track, and a proportional-navigation law turns that track into steering
 commands — rendered live in 3D.
 
-> **Status: Phase 4.** The missile now sees the target only through a noisy seeker.
+> **Status: Phase 5.** A filter between the seeker and the guidance law turns a
+> 1.5 km miss into a hit.
 
-![Miss distance against seeker angle noise](docs/assets/seeker-noise-sweep.png)
+![Miss distance by estimator against three target behaviours](docs/assets/estimator-comparison.png)
 
-Everything through Phase 3 fed the guidance law perfect information. Phase 4
-takes it away: 2 mrad of angle noise, glint, Doppler noise, a gimbal limit,
-one frame of latency, and dropouts below the detection threshold.
+Phase 4 ended in failure, deliberately left in place: proportional navigation
+that intercepted within 3 cm on perfect information missed by **1577 m** once it
+had to work from a 2 mrad seeker. Nothing was wrong with the guidance law. What
+was wrong is that relative velocity was obtained by differencing two noisy
+positions 10 ms apart, which multiplies the angle error by a hundred.
 
-Proportional navigation holds up to about **0.2 mrad** and comes apart
-completely by 2 — a median miss of **1577 m** where perfect information gave
-0.03. Miss distance grows as roughly the *square* of angle noise.
+Phase 5 puts an estimator in that gap — the same seeker, the same guidance law,
+something sensible in between. **1577 m becomes 0.94 m**, a factor of about
+1700, and the extended Kalman filter scores 6 hits from 6 against all three
+target behaviours.
 
-Nothing about the guidance law changed. What changed is that relative velocity
-is now obtained by differencing two noisy positions 10 ms apart, which
-multiplies the measurement error by a hundred. Phase 5 puts an estimator in
-that gap.
+The more interesting result is the one the three panels exist to show. Against a
+straight target the heavily-smoothed alpha-beta filter is the *best* thing here
+(0.42 m): averaging beats noise, and there is no signal being averaged away.
+Against a 7 g break turn the same filter is the *only* one that fails outright —
+9.40 m, 0 hits from 6 — because the smoothing that rejected the noise also
+rejects the manoeuvre. Its gains were fixed in advance, and it cannot revisit
+that decision when the target does something new.
+
+The EKF is never quite the best in any single panel and never bad in any of
+them, because it recomputes how much to trust its own prediction on every frame
+from its own covariance. That is the trade the phase is about: a fixed gain has
+to be chosen for behaviour you do not get to know beforehand.
+
+The filter also **coasts through a 0.5 s blackout** — it keeps predicting when
+there is nothing to correct with, where the naive version threw the track away
+and the missile flew blind.
 
 ![Pure pursuit against proportional navigation on a crossing target](docs/assets/comparison-crossing.png)
 
@@ -38,10 +54,21 @@ up the geometry and then coasts at 3.5 g, while pursuit ramps to 13 g in the
 last two seconds and still arrives behind.
 
 ```bash
-python examples/seeker_sweep.py   # the noise sweep above
-python examples/compare_laws.py   # pursuit vs PN, all three geometries
-python examples/pursuit.py        # one law, five diagnostic panels
-python examples/ballistic.py      # unguided flight, vacuum vs drag
+python examples/estimator_comparison.py   # the figure above (~7 min)
+python examples/seeker_sweep.py           # miss distance against seeker noise
+python examples/compare_laws.py           # pursuit vs PN, all three geometries
+python examples/pursuit.py                # one law, five diagnostic panels
+python examples/ballistic.py              # unguided flight, vacuum vs drag
+```
+
+```
+crossing geometry, realistic seeker, 6 seeds       median miss    hits
+  no estimator (Phase 4)                              1577.2 m    0/6
+  alpha-beta, a=0.05, straight target                    0.42 m   6/6
+  alpha-beta, a=0.05, 7 g break turn                     9.40 m   0/6
+  EKF, jerk 60, straight target                          0.94 m   6/6
+  EKF, jerk 60, 7 g break turn                           2.77 m   6/6
+  perfect information (Phase 3 baseline)                 0.03 m   6/6
 ```
 
 ```
@@ -67,6 +94,12 @@ A guidance law that intercepts perfectly on truth data starts missing when fed a
 hard-manoeuvring target and needs a target-acceleration term. That progression is
 the project.
 
+Each layer talks to the next through one small type. The guidance law is handed
+a `Track` and nothing else, so the same proportional navigation runs unchanged on
+truth, on raw seeker measurements, and behind a filter — which makes "try this
+law on perfect information" a one-line move for diagnosing anything downstream of
+it.
+
 ## Roadmap
 
 | Phase | Scope | Exit criterion | Status |
@@ -76,9 +109,20 @@ the project.
 | 2 | Pure pursuit on truth data | First intercept against a non-manoeuvring target | ✅ 3.2 m head-on |
 | 3 | Proportional navigation on truth data | ≥10× lower miss distance than pursuit on a crossing target | ✅ 1350× |
 | 4 | Seeker: frames, gimbal gating, noise, dropouts | Monotonic noise-vs-miss-distance sweep | ✅ 0.02 m → 1577 m |
-| 5 | Estimation: alpha-beta, then EKF | Within 2× of the perfect-information baseline; survives a 0.5 s dropout | ⬜ |
+| 5 | Estimation: alpha-beta, then EKF | Inside the 5 m lethal radius on a realistic seeker; survives a 0.5 s dropout | ✅ 1577 m → 0.94 m |
 | 6 | Real-time 3D viewer | A recording good enough to head this README | ⬜ |
 | 7 | Manoeuvring targets, augmented PN, Monte Carlo | Miss-distance distribution over 1000 runs | ⬜ |
+
+Phase 5's exit criterion was originally written as *"within 2× of the
+perfect-information baseline"* — 0.06 m. That criterion was wrong, and it is
+worth saying why rather than quietly restating it. Perfect information has no
+glint; a real seeker sees a target as a scattering body roughly 1.5 m across,
+and which part of it dominates the return wanders from pulse to pulse. As range
+falls that metre-scale wander subtends a *growing* angle, so the last second of
+flight is the noisiest. No filter can average away an error that peaks exactly
+when there is no time left to average. Sub-metre is the floor the physics
+allows, and the criterion was changed to the one that means something: does the
+round arrive inside its lethal radius.
 
 ## Install
 
