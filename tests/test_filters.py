@@ -8,6 +8,8 @@ and glint put a floor under terminal miss distance that no filter removes.
 
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -335,3 +337,65 @@ def test_a_weaving_target_costs_every_estimator_accuracy() -> None:
         )
     )
     assert weaving > straight
+
+
+# --------------------------------------------------------------------------
+# Timing
+# --------------------------------------------------------------------------
+def _mean_position_error(latency_frames: int, seed: int) -> float:
+    """Average distance between the filter's estimate and the truth it describes.
+
+    Compared against the truth at the *measurement's* epoch, which is the
+    instant the estimate is an estimate of. Comparing against the current time
+    instead would measure the extrapolation rather than the filter.
+    """
+    config = dataclasses.replace(SeekerConfig(), latency_frames=latency_frames)
+    start = np.array([-1200.0, 6000.0, 1000.0])
+    velocity = np.array([250.0, 0.0, 0.0])
+
+    target = Target("target", EntityState(pos=start, vel=velocity))
+    estimator = ExtendedKalman()
+    source = FilteredTrack(GeometricSeeker(config, np.random.default_rng(seed)), target, estimator)
+
+    dt = 0.01
+    errors = []
+    for step in range(600):
+        t = step * dt
+        target.state = EntityState(pos=start + velocity * t, vel=velocity)
+        source.update(
+            t, EntityState(pos=np.array([0.0, 600.0 * t, 1000.0]), vel=np.array([0.0, 600.0, 0.0]))
+        )
+
+        measurement = source.latest
+        estimate = estimator.estimate()
+        if measurement is None or not measurement.valid or estimate is None or t < 2.0:
+            continue
+        errors.append(
+            float(np.linalg.norm(start + velocity * measurement.time - estimate.position))
+        )
+
+    return float(np.mean(errors))
+
+
+def test_a_stale_measurement_does_not_bias_the_estimate() -> None:
+    """Regression test for a 6 m bias that miss distance never revealed.
+
+    The seeker holds each measurement back one frame and stamps it with when it
+    was *taken*. Correcting the current state with that measurement — and with
+    the missile's current position rather than where it was when the
+    measurement was taken — folds one frame of relative motion into the estimate
+    as a standing offset. At 650 m/s of closing that is 6.5 m, against a filter
+    reporting about 2 m of position uncertainty: a three-sigma bias.
+
+    It never showed up in miss distance, because the filter still tracked well
+    enough to hit. It was found by the NEES consistency check, which read 1804
+    against an expected 6. Latency now costs the estimate essentially nothing,
+    because :class:`FilteredTrack` aligns the epochs before correcting.
+    """
+    prompt = float(np.mean([_mean_position_error(0, seed) for seed in range(4)]))
+    delayed = float(np.mean([_mean_position_error(1, seed) for seed in range(4)]))
+
+    assert delayed < prompt * 1.5, (
+        f"a one-frame delay moved the mean position error from {prompt:.2f} m to "
+        f"{delayed:.2f} m — the measurement epoch is not being honoured"
+    )

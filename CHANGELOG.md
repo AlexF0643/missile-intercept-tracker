@@ -26,15 +26,30 @@ All notable changes to this project are documented here. The format follows
   about the terminal phase: glint's angular effect grows as range falls.
 - Phase 5 exit criterion met. On the crossing engagement with a realistic
   seeker, over 6 seeds: median miss falls from **1577 m with no estimator to
-  0.94 m** with the EKF, well inside the 5 m lethal radius, and the filter
+  0.88 m** with the EKF, well inside the 5 m lethal radius, and the filter
   coasts through a 0.5 s blackout.
 - `examples/estimator_comparison.py` and `plot_estimator_comparison` compare
   five estimator configurations against three target behaviours. The finding:
   heavy alpha-beta smoothing is the best estimator against a straight target
-  (0.42 m) and the only outright failure against a 7 g break turn (9.40 m,
+  (0.40 m) and the only outright failure against a 7 g break turn (9.58 m,
   0 hits from 6), while every EKF configuration hits 6 from 6 everywhere
   without ever being the best. A fixed gain must be chosen in advance for
   behaviour that is not knowable in advance.
+- `interceptor.sensing.consistency` — NEES, the check that asks whether the
+  filter's *stated* uncertainty matches its actual error rather than whether the
+  estimate is close. `normalised_error_squared` measures the error in units of
+  the covariance the filter reports; `chi_squared_interval` gives the acceptance
+  bounds by the Wilson-Hilferty transformation, which keeps the package's only
+  dependency numpy rather than pulling in scipy for three constants (relative
+  error under 3e-4 above 54 degrees of freedom, verified against exact quantiles
+  in the tests).
+- `tests/test_consistency.py`, including a negative control that aims the same
+  machinery at a filter sabotaged to understate its variance a hundredfold and
+  requires it to fail. A consistency check that cannot fail certifies nothing.
+- Measured result: across 24 independent seeds the EKF scores a mean NEES of
+  6.16 against an expected 6.00, inside the 95% interval, and stays inside it
+  against a 6 g weave its constant-acceleration model does not describe and
+  across a 600-fold range of `jerk_sigma`.
 
 ### Changed
 
@@ -52,6 +67,25 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **The filter was three-sigma overconfident, and nothing else would have found
+  it.** The seeker models one frame of processing latency and stamps each
+  measurement with when it was taken. `FilteredTrack` corrected the estimator's
+  current-epoch state with that stale measurement, and passed the missile's
+  *current* state as the frame to interpret it in — folding one frame of
+  relative motion into every estimate as a standing offset. At 650 m/s of
+  closing that is 6.5 m, against a filter reporting about 2 m of position
+  uncertainty. NEES read 1804 where 6 was expected; with latency disabled it
+  read 6.22, which located the fault precisely.
+
+  `FilteredTrack` now keeps the two clocks apart. The estimator is predicted to
+  the measurement's own epoch and corrected with the missile state recorded at
+  that epoch, and the track handed to the guidance law is extrapolated forward
+  from there to the present. The estimator itself needed no change — its
+  mathematics was never wrong.
+
+  The correction moves the Phase 5 headline from 0.94 m to 0.88 m, which is the
+  point: the bias was nearly invisible in miss distance and would have corrupted
+  Phase 7's distribution silently.
 - CI's lint job no longer fails on a fresh dependency install. mypy was told to
   target Python 3.11, and numpy's own `.pyi` stubs use PEP 695 `type` statements
   from 2.5 onwards, which mypy refuses to parse under that target — so it failed

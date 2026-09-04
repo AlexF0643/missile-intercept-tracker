@@ -21,15 +21,15 @@ was wrong is that relative velocity was obtained by differencing two noisy
 positions 10 ms apart, which multiplies the angle error by a hundred.
 
 Phase 5 puts an estimator in that gap — the same seeker, the same guidance law,
-something sensible in between. **1577 m becomes 0.94 m**, a factor of about
+something sensible in between. **1577 m becomes 0.88 m**, a factor of about
 1700, and the extended Kalman filter scores 6 hits from 6 against all three
 target behaviours.
 
 The more interesting result is the one the three panels exist to show. Against a
 straight target the heavily-smoothed alpha-beta filter is the *best* thing here
-(0.42 m): averaging beats noise, and there is no signal being averaged away.
+(0.40 m): averaging beats noise, and there is no signal being averaged away.
 Against a 7 g break turn the same filter is the *only* one that fails outright —
-9.40 m, 0 hits from 6 — because the smoothing that rejected the noise also
+9.58 m, 0 hits from 6 — because the smoothing that rejected the noise also
 rejects the manoeuvre. Its gains were fixed in advance, and it cannot revisit
 that decision when the target does something new.
 
@@ -41,6 +41,34 @@ to be chosen for behaviour you do not get to know beforehand.
 The filter also **coasts through a 0.5 s blackout** — it keeps predicting when
 there is nothing to correct with, where the naive version threw the track away
 and the missile flew blind.
+
+### Is the filter honest about its own uncertainty?
+
+Miss distance says whether the estimate was *accurate*. It says nothing about
+whether the covariance the filter reports alongside it is *truthful*, and those
+come apart in a way that matters. A filter that understates its uncertainty runs
+too small a gain, so it discounts measurements that disagree with it — tracking
+a quiet target immaculately and then arriving late on the manoeuvre that counts.
+
+The standard check is NEES: measure the error in units of the filter's own
+claimed uncertainty, and it should average to the number of states, here 6.
+Across 24 independent seeds the EKF scores **6.16 against an expected 6.00**,
+inside the 95% interval, and stays there against a 6 g weave its
+constant-acceleration model does not describe and across a 600-fold range of
+process-noise tuning.
+
+It did not the first time it was asked. It scored **1804** — a three-sigma bias
+hiding under a filter that was hitting the target anyway. The seeker models one
+frame of processing latency and stamps each measurement with when it was
+*taken*, but the track was correcting its current state with that stale
+measurement and with the missile's *current* position. That folds one frame of
+relative motion into every estimate as a standing offset: 6.5 m at 650 m/s of
+closing, against a filter claiming about 2 m of uncertainty.
+
+Fixing it barely moved the miss distance — 0.94 m to 0.88 m — which is precisely
+why it needed a consistency check to find. It would have quietly corrupted the
+Phase 7 miss-distance distribution, where the covariance stops being diagnostic
+and starts being the answer.
 
 ![Pure pursuit against proportional navigation on a crossing target](docs/assets/comparison-crossing.png)
 
@@ -64,10 +92,10 @@ python examples/ballistic.py              # unguided flight, vacuum vs drag
 ```
 crossing geometry, realistic seeker, 6 seeds       median miss    hits
   no estimator (Phase 4)                              1577.2 m    0/6
-  alpha-beta, a=0.05, straight target                    0.42 m   6/6
-  alpha-beta, a=0.05, 7 g break turn                     9.40 m   0/6
-  EKF, jerk 60, straight target                          0.94 m   6/6
-  EKF, jerk 60, 7 g break turn                           2.77 m   6/6
+  alpha-beta, a=0.05, straight target                    0.40 m   6/6
+  alpha-beta, a=0.05, 7 g break turn                     9.58 m   0/6
+  EKF, jerk 60, straight target                          0.88 m   6/6
+  EKF, jerk 60, 7 g break turn                           2.98 m   6/6
   perfect information (Phase 3 baseline)                 0.03 m   6/6
 ```
 
@@ -109,7 +137,7 @@ it.
 | 2 | Pure pursuit on truth data | First intercept against a non-manoeuvring target | ✅ 3.2 m head-on |
 | 3 | Proportional navigation on truth data | ≥10× lower miss distance than pursuit on a crossing target | ✅ 1350× |
 | 4 | Seeker: frames, gimbal gating, noise, dropouts | Monotonic noise-vs-miss-distance sweep | ✅ 0.02 m → 1577 m |
-| 5 | Estimation: alpha-beta, then EKF | Inside the 5 m lethal radius on a realistic seeker; survives a 0.5 s dropout | ✅ 1577 m → 0.94 m |
+| 5 | Estimation: alpha-beta, then EKF | Inside the 5 m lethal radius on a realistic seeker; survives a 0.5 s dropout | ✅ 1577 m → 0.88 m |
 | 6 | Real-time 3D viewer | A recording good enough to head this README | ⬜ |
 | 7 | Manoeuvring targets, augmented PN, Monte Carlo | Miss-distance distribution over 1000 runs | ⬜ |
 

@@ -14,6 +14,7 @@ is exactly one correct way to compute each.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
@@ -239,26 +240,72 @@ class FilteredTrack(TrackSource):
     supply it, which is what augmented proportional navigation will consume in
     Phase 7. The alpha-beta filter reports zero, so APN degrades to PN behind
     it — correctly, and without the guidance law needing to know why.
+
+    **Two clocks, and why keeping them apart matters.** A measurement is stamped
+    with when it was *taken*, which under modelled latency is earlier than when
+    it arrives. Those are different instants and this class is where they meet,
+    so it is this class's job not to confuse them.
+
+    Everything the estimator sees runs on measurement time. It is predicted
+    forward to the measurement's epoch, not to now, and it is corrected using
+    the missile's state *as it was at that epoch* — which is why a short history
+    of missile states is kept. Feeding a filter a measurement taken 10 ms ago
+    while telling it where the missile is now embeds the relative motion over
+    that interval into the estimate as a standing bias: at 650 m/s of closing
+    that is 6.5 m, several times the position uncertainty the filter reports,
+    and it is invisible in miss distance because the filter still tracks well
+    enough to hit. It shows up immediately in a NEES consistency check, which is
+    how it was found.
+
+    The track handed to the guidance law then runs on current time, extrapolated
+    forward from the estimator's epoch by however stale the last measurement is.
+    That extrapolation is deterministic and belongs here rather than inside a
+    filter, whose job is to estimate the state at the instant it was observed.
     """
 
-    def __init__(self, seeker: Seeker, target: Entity, estimator: Estimator) -> None:
+    def __init__(
+        self, seeker: Seeker, target: Entity, estimator: Estimator, history: int = 16
+    ) -> None:
         self.seeker = seeker
         self.target = target
         self.estimator = estimator
         self.latest: Measurement | None = None
         self.dropouts = 0
-        self._last_time: float | None = None
+        #: The instant the estimator's state refers to — a measurement's epoch
+        #: after a sighting, the current time after coasting through a dropout.
+        self._state_time: float | None = None
+        self._history: deque[tuple[float, EntityState]] = deque(maxlen=history)
+
+    def _missile_at(self, when: float, fallback: EntityState) -> EntityState:
+        """The recorded missile state nearest ``when``.
+
+        Nearest rather than interpolated: the history is sampled at the guidance
+        rate and measurements are stamped at those same instants, so the match
+        is exact in practice and interpolation would only add a way to be
+        subtly wrong.
+        """
+        best, smallest = fallback, float("inf")
+        for time, state in self._history:
+            gap = abs(time - when)
+            if gap < smallest:
+                best, smallest = state, gap
+        return best
 
     def update(self, t: float, missile: EntityState) -> Track:
+        self._history.append((t, missile))
         measurement = self.seeker.measure(t, missile, self.target.state)
         self.latest = measurement
 
-        interval = 0.0 if self._last_time is None else t - self._last_time
-        self._last_time = t
+        # Advance the estimator to the epoch its next evidence describes: the
+        # measurement's own timestamp when there is one, otherwise all the way
+        # to now, because coasting means propagating the model to the present.
+        epoch = measurement.time if measurement.valid else t
+        interval = 0.0 if self._state_time is None else max(epoch - self._state_time, 0.0)
         self.estimator.predict(interval)
+        self._state_time = epoch
 
         if measurement.valid:
-            self.estimator.correct(measurement, missile)
+            self.estimator.correct(measurement, self._missile_at(measurement.time, missile))
         else:
             self.dropouts += 1
 
@@ -273,10 +320,18 @@ class FilteredTrack(TrackSource):
                 valid=False,
             )
 
+        # Carry the estimate forward from its own epoch to now. Zero after a
+        # dropout, one frame behind a latent seeker.
+        lag = max(t - self._state_time, 0.0)
+        position = (
+            estimate.position + estimate.velocity * lag + 0.5 * estimate.acceleration * lag**2
+        )
+        velocity = estimate.velocity + estimate.acceleration * lag
+
         return Track(
             time=t,
-            relative_position=estimate.position - missile.pos,
-            relative_velocity=estimate.velocity - missile.vel,
+            relative_position=position - missile.pos,
+            relative_velocity=velocity - missile.vel,
             target_acceleration=estimate.acceleration,
             valid=True,
         )
