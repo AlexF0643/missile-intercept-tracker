@@ -1,0 +1,54 @@
+# The engagement that separates the guidance laws.
+#
+# The target flies at right angles to the sightline, so the bearing to it
+# sweeps continuously and a law that steers at where the target *is* is always
+# steering behind it. Pure pursuit misses by 40 m here; proportional navigation
+# by centimetres on perfect information.
+#
+# Copy this file, edit it, and run:  interceptor run my-scenario.toml
+
+name = "crossing"
+description = "Target crossing the sightline at right angles from 6 km"
+duration = 30.0
+lethal_radius = 5.0
+
+[missile]
+position = [0.0, 0.0, 1000.0]
+speed = 60.0          # off the rail, aimed at the target's initial position
+mass = 85.0
+autopilot_lag = 0.20  # seconds; first-order lag between command and response
+
+[missile.motor]
+boost_thrust = 20000.0
+boost_duration = 2.5
+specific_impulse = 240.0
+
+[missile.aero]
+drag_coefficient = 0.30
+reference_area = 0.02
+max_lateral_g = 30.0
+max_lift_coefficient = 2.50
+
+[target]
+position = [0.0, 6000.0, 1000.0]
+velocity = [250.0, 0.0, 0.0]
+
+[target.manoeuvre]
+kind = "straight"     # straight | weave | break_turn
+
+[guidance]
+law = "pronav"        # pronav | pursuit | none
+navigation_constant = 3.0
+
+[seeker]
+enabled = true        # false gives the guidance law perfect information
+range_sigma = 3.0
+angle_sigma = 0.002   # radians; the dominant error, cross-range = range * sigma
+range_rate_sigma = 0.4
+glint_sigma = 1.5     # metres, so its angular effect grows as range falls
+gimbal_limit_deg = 40.0
+latency_frames = 1
+
+[estimator]
+kind = "ekf"          # none | alpha_beta | ekf
+jerk_sigma = 60.0     # how strongly the filter disbelieves its own model

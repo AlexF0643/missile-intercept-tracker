@@ -34,6 +34,11 @@ dynamic = ["version"]
 # module from Phase 1 onward.
 dependencies = ["numpy>=1.26"]
 
+[project.scripts]
+# Console entry point. argparse and tomllib are both standard library, so this
+# works from a bare "pip install ." with no extras.
+interceptor = "interceptor.cli:main"
+
 [project.optional-dependencies]
 # Plotting only. Kept out of the core dependencies so that a headless machine,
 # a CI runner or a Monte Carlo batch never has to install a drawing library.

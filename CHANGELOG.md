@@ -35,6 +35,23 @@ All notable changes to this project are documented here. The format follows
   0 hits from 6), while every EKF configuration hits 6 from 6 everywhere
   without ever being the best. A fixed gain must be chosen in advance for
   behaviour that is not knowable in advance.
+- Engagements can be defined without editing Python. `interceptor.config` reads
+  a scenario from TOML — launch geometry, motor, airframe, the full seeker error
+  budget, guidance law, estimator and tuning — and `interceptor.cli` provides
+  `list`, `show`, `run` and `sweep` behind an `interceptor` console script. Six
+  scenarios ship with the package, including the perfect-information and pure
+  pursuit baselines, and `interceptor show <name> --raw` prints one to copy.
+- Unrecognised configuration keys are errors, with a suggestion: `seeker.glint`
+  reports *did you mean 'glint_sigma'?* rather than silently using the default.
+  Every table validates its own key set, types are checked (including that a
+  TOML boolean is not accepted as a number, which Python's `bool`/`int`
+  relationship would otherwise allow), and ranges are enforced where a negative
+  value is meaningless.
+- Neither addition brings a dependency. TOML is parsed by `tomllib` and the CLI
+  is built on `argparse`, both standard library since 3.11, so the package still
+  installs with numpy alone. This deviates from the plan, which named YAML,
+  Pydantic and Typer; the reasoning is recorded in `config.py` and `cli.py`, and
+  the same argument the project already applied to scipy.
 - `interceptor.sensing.consistency` — NEES, the check that asks whether the
   filter's *stated* uncertainty matches its actual error rather than whether the
   estimate is close. `normalised_error_squared` measures the error in units of
@@ -53,6 +70,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `interceptor.viz.plots` coverage rises from 48% to 97%, and the project from
+  86% to 95%. `plot_comparison`, `plot_noise_sweep` and `plot_estimator_comparison`
+  had no tests beyond "returns a figure"; they now cover panel structure, both
+  themes, the optional baseline and hit-count annotations, unknown-theme
+  rejection, the file-writing wrappers, and the degenerate inputs — one law, one
+  panel, nothing to compare — where the array-versus-scalar handling of
+  `subplots` is easy to get wrong.
 - Phase 5's exit criterion was rewritten from "within 2× of the
   perfect-information baseline" (0.06 m) to "inside the 5 m lethal radius". The
   original was unachievable for a physical reason rather than a implementation

@@ -1,0 +1,34 @@
+# The case that separates the estimators rather than the guidance laws.
+#
+# The target flies straight and then pulls 7 g at t = 8 s. A heavily smoothed
+# alpha-beta filter scores 0 hits from 6 here, because the smoothing that
+# rejected the measurement noise also rejects the manoeuvre. Try it: set
+# [estimator] kind = "alpha_beta" with alpha = 0.05 and compare.
+
+name = "break-turn"
+description = "Target breaks hard at 7 g eight seconds in"
+duration = 30.0
+
+[missile]
+position = [0.0, 0.0, 1000.0]
+speed = 60.0
+
+[target]
+position = [0.0, 6000.0, 1000.0]
+velocity = [250.0, 0.0, 0.0]
+
+[target.manoeuvre]
+kind = "break_turn"
+amplitude_g = 7.0
+start_time = 8.0
+
+[guidance]
+law = "pronav"
+navigation_constant = 3.0
+
+[seeker]
+enabled = true
+
+[estimator]
+kind = "ekf"
+jerk_sigma = 60.0

@@ -1,0 +1,24 @@
+# The easy case. The target flies straight down the sightline, the bearing
+# barely rotates, and almost any guidance law intercepts.
+
+name = "head-on"
+description = "Target closing straight down the sightline from 8 km"
+duration = 20.0
+
+[missile]
+position = [0.0, 0.0, 1000.0]
+speed = 60.0
+
+[target]
+position = [0.0, 8000.0, 1000.0]
+velocity = [0.0, -250.0, 0.0]
+
+[guidance]
+law = "pronav"
+navigation_constant = 3.0
+
+[seeker]
+enabled = true
+
+[estimator]
+kind = "ekf"

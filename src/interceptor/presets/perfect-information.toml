@@ -1,0 +1,25 @@
+# The Phase 3 baseline: the same guidance law with a flawless track.
+#
+# No seeker, so no noise, no latency, no gimbal limit and no dropouts. This is
+# what every degraded configuration is measured against, and it is the first
+# thing to run when a change makes the miss distance worse — if this still
+# intercepts, the guidance law is fine and the problem is downstream of it.
+
+name = "perfect-information"
+description = "Crossing engagement with a flawless track — the Phase 3 baseline"
+duration = 30.0
+
+[missile]
+position = [0.0, 0.0, 1000.0]
+speed = 60.0
+
+[target]
+position = [0.0, 6000.0, 1000.0]
+velocity = [250.0, 0.0, 0.0]
+
+[guidance]
+law = "pronav"
+navigation_constant = 3.0
+
+[seeker]
+enabled = false

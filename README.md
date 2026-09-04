@@ -81,6 +81,61 @@ And it does so using less acceleration, not more: PN spends 7.8 g early to set
 up the geometry and then coasts at 3.5 g, while pursuit ramps to 13 g in the
 last two seconds and still arrives behind.
 
+## Run one without writing any Python
+
+Engagements are TOML files. The package ships several and the command-line tool
+flies them:
+
+```bash
+interceptor list                              # what ships with the package
+interceptor show crossing                     # describe one without flying it
+interceptor run crossing --seed 3             # fly it
+interceptor sweep crossing --seeds 20         # fly it 20 times, report the spread
+interceptor run crossing --figure out.png     # five-panel diagnostic
+```
+
+To make your own, copy one and edit it:
+
+```bash
+interceptor show crossing --raw > my-scenario.toml
+interceptor run my-scenario.toml
+```
+
+Every physical quantity is in there — launch geometry, motor, airframe limits,
+the full seeker error budget, the guidance law, the estimator and its tuning:
+
+```toml
+[target]
+position = [0.0, 6000.0, 1000.0]
+velocity = [250.0, 0.0, 0.0]
+
+[target.manoeuvre]
+kind = "break_turn"      # straight | weave | break_turn
+amplitude_g = 7.0
+start_time = 8.0
+
+[seeker]
+angle_sigma = 0.002      # radians; the dominant error
+glint_sigma = 1.5        # metres, so its angular effect grows as range falls
+
+[estimator]
+kind = "ekf"             # none | alpha_beta | ekf
+jerk_sigma = 60.0
+```
+
+A key the schema does not recognise is an error, not a shrug:
+
+```
+$ interceptor run my-scenario.toml
+error: seeker.glint: unknown key — did you mean 'glint_sigma'?
+```
+
+Which matters more than it looks. A config format that silently ignores
+`anglesigma = 0.002` costs somebody an afternoon wondering why the noise
+setting does nothing.
+
+## Diagnostic figures
+
 ```bash
 python examples/estimator_comparison.py   # the figure above (~7 min)
 python examples/seeker_sweep.py           # miss distance against seeker noise

@@ -1,0 +1,24 @@
+# Pure pursuit on the crossing geometry — the failure Phase 3 exists to beat.
+#
+# The missile steers straight at where the target is, ends up in a tail chase,
+# and misses by roughly 40 m while demanding 217 g from an airframe that can
+# deliver 13. Run this against crossing.toml to see the difference the
+# guidance law alone makes.
+
+name = "pursuit-crossing"
+description = "Pure pursuit against a crossing target — the deliberate baseline"
+duration = 30.0
+
+[missile]
+position = [0.0, 0.0, 1000.0]
+speed = 60.0
+
+[target]
+position = [0.0, 6000.0, 1000.0]
+velocity = [250.0, 0.0, 0.0]
+
+[guidance]
+law = "pursuit"
+
+[seeker]
+enabled = false

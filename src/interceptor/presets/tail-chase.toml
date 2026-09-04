@@ -1,0 +1,24 @@
+# The hard case. The missile has to run the target down from behind, so closing
+# speed is low and there is a great deal of time for small errors to accumulate.
+
+name = "tail-chase"
+description = "Target running away from 3 km — low closing speed, long flight"
+duration = 40.0
+
+[missile]
+position = [0.0, 0.0, 1000.0]
+speed = 60.0
+
+[target]
+position = [0.0, 3000.0, 1000.0]
+velocity = [0.0, 250.0, 0.0]
+
+[guidance]
+law = "pronav"
+navigation_constant = 3.0
+
+[seeker]
+enabled = true
+
+[estimator]
+kind = "ekf"
