@@ -2,8 +2,9 @@
 #
 # The target flies at right angles to the sightline, so the bearing to it
 # sweeps continuously and a law that steers at where the target *is* is always
-# steering behind it. Pure pursuit misses by 40 m here; proportional navigation
-# by centimetres on perfect information.
+# steering behind it. Against a straight target pursuit does get there, by
+# running it down over 19 s at a quarter of the closing speed; add a weave and
+# it misses by 89 m where proportional navigation misses by 6.
 #
 # Copy this file, edit it, and run:  interceptor run my-scenario.toml
 

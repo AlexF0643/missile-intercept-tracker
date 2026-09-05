@@ -1,0 +1,39 @@
+# The manoeuvre a plan view cannot show.
+#
+# A barrel roll is a constant-g pull whose direction rotates about the flight
+# path, so the target corkscrews. In plan view it looks much like a weave; in
+# three dimensions it is a helix, and no plane contains it. It is the hardest
+# case in the bundle for proportional navigation — the line-of-sight rate never
+# settles in any axis, so an estimator cannot smooth one component and be right
+# about the rest.
+#
+#   interceptor record barrel-roll -o roll.gif
+#   interceptor view barrel-roll
+
+name = "barrel-roll"
+description = "Target corkscrewing at 5 g — the case a plan view cannot show"
+duration = 30.0
+
+[missile]
+position = [0.0, 0.0, 1000.0]
+speed = 60.0
+
+[target]
+position = [0.0, 6000.0, 1000.0]
+velocity = [250.0, 0.0, 0.0]
+
+[target.manoeuvre]
+kind = "barrel_roll"
+amplitude_g = 5.0
+period = 4.0
+
+[guidance]
+law = "pronav"
+navigation_constant = 3.0
+
+[seeker]
+enabled = true
+
+[estimator]
+kind = "ekf"
+jerk_sigma = 60.0

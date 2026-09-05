@@ -27,26 +27,87 @@ class Aerodynamics:
             of a finned missile — well above an aircraft wing's ~1.5, because
             the body and tail surfaces contribute and the airframe is flown to
             angles of attack an aircraft would never see.
+        peak_lift_angle_deg: The angle of attack at which that peak lift is
+            reached. Only used to work out what turning costs — see
+            :attr:`induced_drag_factor`.
     """
 
     drag_coefficient: float = 0.30
     reference_area: float = 0.02
     max_lateral_g: float = 30.0
     max_lift_coefficient: float = 2.50
+    peak_lift_angle_deg: float = 25.0
+
+    @property
+    def induced_drag_factor(self) -> float:
+        """``k`` in ``Cd = Cd0 + k * Cn^2`` — the price of turning.
+
+        Not a free constant: it falls out of two numbers the airframe has
+        already declared. A body at incidence produces its normal force
+        perpendicular to its own axis rather than to the flight path, so a
+        component of that force points backwards. To first order the streamwise
+        share is ``Cn * sin(alpha) ~ Cn * alpha``, and with ``Cn ~ Cn_alpha *
+        alpha`` that is ``Cn^2 / Cn_alpha``. Hence ``k = 1 / Cn_alpha``, and the
+        lift-curve slope is just the peak lift divided by the angle it is
+        reached at.
+
+        With the defaults — 2.5 at 25 degrees — this gives ``k ~ 0.175``, so an
+        airframe pulling its full lift coefficient sees an induced ``Cd`` near
+        1.1 against a zero-lift 0.30. Manoeuvring hard roughly quadruples the
+        drag, which is the single most important thing this correction adds:
+        before it, the missile turned for free.
+
+        **This is an engineering estimate, not a citation.** The form is
+        standard and the magnitude is right, but a real design would take
+        ``Cn_alpha`` and the induced-drag efficiency from a wind-tunnel database
+        — Fleeman's *Tactical Missile Design* or USAF DATCOM. Treat the number
+        as a placeholder with the correct physics behind it, and replace it if
+        this project ever needs to claim absolute accuracy rather than
+        comparative honesty.
+        """
+        return float(np.deg2rad(self.peak_lift_angle_deg)) / self.max_lift_coefficient
 
     def dynamic_pressure(self, speed: float, density: float) -> float:
         """``q = 0.5 * rho * V^2``, in pascals."""
         return 0.5 * density * speed * speed
 
-    def drag_acceleration(self, velocity: Vector, mass: float, density: float) -> Vector:
+    def normal_force_coefficient(
+        self, lateral_acceleration: float, speed: float, mass: float, density: float
+    ) -> float:
+        """``Cn`` needed to produce a given lateral acceleration."""
+        pressure = self.dynamic_pressure(speed, density) * self.reference_area
+        if pressure <= 0.0:
+            return 0.0
+        return mass * abs(lateral_acceleration) / pressure
+
+    def total_drag_coefficient(
+        self, lateral_acceleration: float, speed: float, mass: float, density: float
+    ) -> float:
+        """Zero-lift drag plus the induced drag of the turn being flown."""
+        coefficient = self.normal_force_coefficient(lateral_acceleration, speed, mass, density)
+        return self.drag_coefficient + self.induced_drag_factor * coefficient * coefficient
+
+    def drag_acceleration(
+        self,
+        velocity: Vector,
+        mass: float,
+        density: float,
+        lateral_acceleration: float = 0.0,
+    ) -> Vector:
         """Deceleration from drag, opposing the velocity, m/s^2.
 
         ``a = -(0.5 * rho * Cd * S / m) * |v| * v``. Written against the vector
         rather than the speed so that no direction has to be reconstructed, and
         so a zero velocity gives exactly zero drag with no special case.
+
+        ``lateral_acceleration`` is what the airframe is currently pulling, and
+        it adds the induced term. Defaulting it to zero keeps an unguided body
+        exactly as it was: a ballistic trajectory is unchanged, which is why the
+        Phase 1 parabola test still holds to 1e-10.
         """
         speed = float(np.linalg.norm(velocity))
-        factor = 0.5 * density * self.drag_coefficient * self.reference_area * speed / mass
+        coefficient = self.total_drag_coefficient(lateral_acceleration, speed, mass, density)
+        factor = 0.5 * density * coefficient * self.reference_area * speed / mass
         return np.asarray(-factor * velocity, dtype=np.float64)
 
     def available_lateral_acceleration(self, speed: float, mass: float, density: float) -> float:

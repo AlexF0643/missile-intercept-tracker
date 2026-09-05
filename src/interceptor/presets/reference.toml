@@ -40,8 +40,14 @@ drag_coefficient = 0.30    # constant — no Mach dependence is modelled
 reference_area = 0.02      # m^2
 max_lateral_g = 30.0       # structural limit
 max_lift_coefficient = 2.50
+peak_lift_angle_deg = 25.0   # the incidence that peak lift needs
 # Available g is the lesser of the structural limit and what dynamic pressure
 # can produce, so a slow missile cannot pull its rated g however much you ask.
+#
+# Those last two also set what turning costs. Lift comes with induced drag,
+# Cd = Cd0 + k*Cn^2 with k = 1/Cn_alpha, and the lift-curve slope is just peak
+# lift over the angle it needs. At full lift that is roughly four times the
+# zero-lift drag — so a missile that manoeuvres hard arrives slow.
 
 # --------------------------------------------------------------------------
 # The target
@@ -51,13 +57,23 @@ position = [0.0, 6000.0, 1000.0]   # REQUIRED
 velocity = [250.0, 0.0, 0.0]       # REQUIRED
 
 [target.manoeuvre]
-kind = "weave"        # straight | weave | break_turn
-amplitude_g = 6.0     # weave and break_turn
-period = 4.0          # weave only, seconds per cycle
+kind = "weave"        # straight | weave | break_turn | barrel_roll | jink
+amplitude_g = 6.0     # all but straight
+period = 4.0          # weave and barrel_roll, seconds per cycle
+# bank_deg = 0.0      # weave and break_turn: the plane to pull in, measured
+#                     # from horizontal. 0 is a flat turn, 90 a pure pull-up,
+#                     # -90 a split-S. Anything else leaves the horizontal
+#                     # plane, which is where a plan view stops being enough.
 # start_time = 8.0    # break_turn only — when the turn begins
+# interval = 1.5      # jink only — seconds between direction changes
+# seed = 0            # jink only — same seed, same sequence of breaks
 #
 # Keys are checked against the kind, so `period` under a break_turn is an
 # error rather than a setting that quietly does nothing.
+#
+# barrel_roll rotates a constant-g pull about the flight path: a helix, not a
+# weave, and the one manoeuvre that genuinely needs three dimensions to see.
+# jink pulls hard in uncorrelated random directions — no filter can learn it.
 
 # --------------------------------------------------------------------------
 # Guidance
@@ -66,8 +82,10 @@ period = 4.0          # weave only, seconds per cycle
 law = "pronav"              # pronav | pursuit | none
 navigation_constant = 3.0   # pronav only; 3 is optimal against a
                             # non-manoeuvring target, 4-5 leads harder
-# "pursuit" steers at where the target is and is kept as a deliberate
-# baseline — it misses a crossing target by 40 m. "none" flies unguided.
+# "pursuit" steers at where the target is and is kept as a deliberate baseline.
+# Against a straight target it does eventually arrive, by running it down over
+# nearly twenty seconds with a quarter of the closing speed; give the target a
+# weave and it misses by 89 m where pronav misses by 6. "none" flies unguided.
 
 # --------------------------------------------------------------------------
 # The seeker

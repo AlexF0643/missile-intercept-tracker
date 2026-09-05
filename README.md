@@ -9,14 +9,20 @@ manoeuvring target a hundred times a second, a filter turns those measurements
 into a track, and a proportional-navigation law turns that track into steering
 commands — rendered live in 3D.
 
-> **Status: Phase 6.** Engagements can now be watched rather than only plotted.
+> **Status: Phase 6, plus an honesty pass on the physics.** Engagements can be
+> watched rather than only plotted — and, since turning now costs energy, the
+> missile can no longer manoeuvre for free.
 
 ![A 7 g break turn intercepted, rendered in 3D](docs/assets/flight.gif)
 
 A target flying straight, breaking hard at 7 g eight seconds in, and being
-intercepted anyway — 2.9 m from a round guided by a 2 mrad seeker and an
+intercepted anyway — 3.7 m from a round guided by a 2 mrad seeker and an
 extended Kalman filter. The endgame plays at quarter speed because at Mach 2 the
 last hundred metres take under a tenth of a second.
+
+That is one seed, and worth saying so: across six seeds this engagement is a hit
+only three times, median miss 4.9 m against a 5 m lethal radius. It became a
+coin toss when induced drag was added — see [below](#turning-is-not-free).
 
 Watch the line-of-sight rate on the readout. Proportional navigation works by
 holding it steady while the range falls, and it runs away at the very end
@@ -33,23 +39,25 @@ interceptor view break-turn                   # the same thing, live and orbitab
 ![Miss distance by estimator against three target behaviours](docs/assets/estimator-comparison.png)
 
 Phase 4 ended in failure, deliberately left in place: proportional navigation
-that intercepted within 3 cm on perfect information missed by **1577 m** once it
+that intercepted within 34 cm on perfect information missed by **1644 m** once it
 had to work from a 2 mrad seeker. Nothing was wrong with the guidance law. What
 was wrong is that relative velocity was obtained by differencing two noisy
 positions 10 ms apart, which multiplies the angle error by a hundred.
 
 Phase 5 puts an estimator in that gap — the same seeker, the same guidance law,
-something sensible in between. **1577 m becomes 0.88 m**, a factor of about
-1700, and the extended Kalman filter scores 6 hits from 6 against all three
-target behaviours.
+something sensible in between. **1644 m becomes 1.05 m**, a factor of about
+1500, and every estimator scores 6 hits from 6 against a target flying straight.
+
+Against a target that manoeuvres, none of them do. That is new, and it is the
+subject of the section after next.
 
 The more interesting result is the one the three panels exist to show. Against a
 straight target the heavily-smoothed alpha-beta filter is the *best* thing here
-(0.40 m): averaging beats noise, and there is no signal being averaged away.
-Against a 7 g break turn the same filter is the *only* one that fails outright —
-9.58 m, 0 hits from 6 — because the smoothing that rejected the noise also
-rejects the manoeuvre. Its gains were fixed in advance, and it cannot revisit
-that decision when the target does something new.
+(0.58 m): averaging beats noise, and there is no signal being averaged away.
+Against a 7 g break turn the same filter is the *worst* by a factor of three —
+16.03 m — because the smoothing that rejected the noise also rejects the
+manoeuvre. Its gains were fixed in advance, and it cannot revisit that decision
+when the target does something new.
 
 The EKF is never quite the best in any single panel and never bad in any of
 them, because it recomputes how much to trust its own prediction on every frame
@@ -83,21 +91,72 @@ measurement and with the missile's *current* position. That folds one frame of
 relative motion into every estimate as a standing offset: 6.5 m at 650 m/s of
 closing, against a filter claiming about 2 m of uncertainty.
 
-Fixing it barely moved the miss distance — 0.94 m to 0.88 m — which is precisely
+Fixing it barely moved the miss distance — a few centimetres — which is precisely
 why it needed a consistency check to find. It would have quietly corrupted the
 Phase 7 miss-distance distribution, where the covariance stops being diagnostic
 and starts being the answer.
 
+## Turning is not free
+
+Every number above changed when the aerodynamics learned that lift costs drag.
+
+A body at incidence makes its normal force perpendicular to its own axis rather
+than to the flight path, so part of that force points backwards:
+`Cd = Cd0 + k·Cn²`, with `k = 1/Cn_alpha`. The lift-curve slope is simply the
+peak lift coefficient divided by the angle it needs, so the airframe already
+declared everything required to work out what its own turns cost. At full lift
+that is **roughly four times the zero-lift drag**. Before this, the missile
+manoeuvred for nothing.
+
+The correction overturned a headline result and replaced it with a better one.
+Pure pursuit used to miss a straight crossing target by 40.8 m; it now hits by
+1 cm. Not a rescue — slowed by its own turning it never overshoots, so it
+settles into a stern chase and eventually runs a straight-flying target down.
+Look at what that costs, and at what happens the moment the target does
+anything at all:
+
+```
+crossing geometry            miss       at   closing   arrival
+  straight, pursuit         0.01 m   18.78s     72       322 m/s
+  straight, pronav          0.34 m   13.51s    284       449 m/s
+  weaving 6 g, pursuit     89.06 m   18.86s     75       273 m/s
+  weaving 6 g, pronav       6.01 m   13.41s    282       430 m/s
+```
+
+So the old claim was partly an artefact of a missile fast enough to overshoot.
+The true one is stronger: pursuit succeeds only against a target that flies
+perfectly straight and grants it nineteen seconds, and it arrives with a quarter
+of the closing speed. A round with no closing speed left has no answer to a
+target that changes its mind — which is exactly what the weave row shows.
+
+It also moved the Phase 5 result. Against a manoeuvring target, proportional
+navigation with a well-tuned EKF now **misses**: 6.94 m on the weave, 4.87 m on
+the break turn, where the lethal radius is 5. The missile spends its energy
+turning and arrives too slow to correct. That is not a regression in the code —
+it is the model becoming honest, and it is precisely the gap augmented
+proportional navigation exists to close in Phase 7, using the target
+acceleration the EKF is already estimating and already
+[verified honest](#is-the-filter-honest-about-its-own-uncertainty).
+
+**The coefficient is an engineering estimate, not a citation.** The form is
+standard and the magnitude is right, but a real design would take `Cn_alpha`
+from a wind-tunnel database — Fleeman's *Tactical Missile Design*, or USAF
+DATCOM. It is a placeholder with correct physics behind it, and it is labelled
+as one in the source.
+
 ![Pure pursuit against proportional navigation on a crossing target](docs/assets/comparison-crossing.png)
 
-Same missile, same target, same data — only the guidance law differs. Pure
-pursuit steers at where the target *is* and ends up in a tail chase, missing by
-**40.8 m**. Proportional navigation steers to stop the *bearing* drifting, flies
-inside that arc to a point ahead of the target, and misses by **0.03 m**.
+Same missile, same weaving target, same data — only the guidance law differs.
+Pure pursuit steers at where the target *is*, swings wide into a tail chase and
+misses by **89.1 m**. Proportional navigation steers to stop the *bearing*
+drifting, flies inside that arc to a point ahead of the target, and misses by
+**6.0 m** — while finishing five and a half seconds sooner and arriving with
+four times the closing speed.
 
-And it does so using less acceleration, not more: PN spends 7.8 g early to set
-up the geometry and then coasts at 3.5 g, while pursuit ramps to 13 g in the
-last two seconds and still arrives behind.
+The mechanism is visible in the middle panel: PN's separation collapses, while
+pursuit's decays slowly and is still decaying when the run ends. And on a
+straight target PN does it using *less* acceleration, not more — it removes the
+need for the turn rather than flying it faster.
 
 ## Run one without writing any Python
 
@@ -187,19 +246,19 @@ python examples/ballistic.py              # unguided flight, vacuum vs drag
 
 ```
 crossing geometry, realistic seeker, 6 seeds       median miss    hits
-  no estimator (Phase 4)                              1577.2 m    0/6
-  alpha-beta, a=0.05, straight target                    0.40 m   6/6
-  alpha-beta, a=0.05, 7 g break turn                     9.58 m   0/6
-  EKF, jerk 60, straight target                          0.88 m   6/6
-  EKF, jerk 60, 7 g break turn                           2.98 m   6/6
-  perfect information (Phase 3 baseline)                 0.03 m   6/6
+  no estimator (Phase 4)                              1644.4 m    0/6
+  alpha-beta, a=0.05, straight target                    0.58 m   6/6
+  alpha-beta, a=0.05, 7 g break turn                    16.03 m   0/6
+  EKF, jerk 60, straight target                          1.05 m   6/6
+  EKF, jerk 60, 7 g break turn                           4.87 m   3/6
+  perfect information (Phase 3 baseline)                 0.34 m   6/6
 ```
 
 ```
-crossing
-  law                 miss (m)   peak demand   peak used    arrival
-  PurePursuit           40.757       217.4 g      13.2 g      535 m/s
-  ProNav (N=3)           0.030       816.4 g       7.8 g      531 m/s
+crossing, weaving 6 g
+  law                 miss (m)      at   closing   peak demand   peak used    arrival
+  PurePursuit           89.059  18.86s      75          49.1 g       8.3 g      273 m/s
+  ProNav (N=3)           6.011  13.41s     282        1415.6 g       9.0 g      430 m/s
 ```
 
 ## Why this exists
@@ -231,22 +290,33 @@ it.
 | 0 | Scaffolding, lint, types, CI | Green CI on an empty project | ✅ |
 | 1 | World, RK4 integrator, ballistics | Drag-free launch matches the analytic parabola to 1e-6 over 10 s | ✅ 3.4e-10 m |
 | 2 | Pure pursuit on truth data | First intercept against a non-manoeuvring target | ✅ 3.2 m head-on |
-| 3 | Proportional navigation on truth data | ≥10× lower miss distance than pursuit on a crossing target | ✅ 1350× |
-| 4 | Seeker: frames, gimbal gating, noise, dropouts | Monotonic noise-vs-miss-distance sweep | ✅ 0.02 m → 1577 m |
-| 5 | Estimation: alpha-beta, then EKF | Inside the 5 m lethal radius on a realistic seeker; survives a 0.5 s dropout | ✅ 1577 m → 0.88 m |
+| 3 | Proportional navigation on truth data | ≥10× lower miss distance than pursuit on a crossing target | ✅ 15× on a weaving one |
+| 4 | Seeker: frames, gimbal gating, noise, dropouts | Monotonic noise-vs-miss-distance sweep | ✅ 0.33 m → 1644 m |
+| 5 | Estimation: alpha-beta, then EKF | Inside the 5 m lethal radius on a realistic seeker; survives a 0.5 s dropout | ✅ 1644 m → 1.05 m |
 | 6 | Real-time 3D viewer | A recording good enough to head this README | ✅ above |
-| 7 | Manoeuvring targets, augmented PN, Monte Carlo | Miss-distance distribution over 1000 runs | ⬜ |
+| 7 | Augmented PN, Monte Carlo | Recover the manoeuvring cases induced drag broke; miss distribution over 1000 runs | ⬜ |
 
-Phase 5's exit criterion was originally written as *"within 2× of the
-perfect-information baseline"* — 0.06 m. That criterion was wrong, and it is
-worth saying why rather than quietly restating it. Perfect information has no
-glint; a real seeker sees a target as a scattering body roughly 1.5 m across,
-and which part of it dominates the return wanders from pulse to pulse. As range
-falls that metre-scale wander subtends a *growing* angle, so the last second of
-flight is the noisiest. No filter can average away an error that peaks exactly
-when there is no time left to average. Sub-metre is the floor the physics
-allows, and the criterion was changed to the one that means something: does the
-round arrive inside its lethal radius.
+Two criteria were rewritten rather than quietly restated, and both are worth the
+paragraph.
+
+**Phase 5** originally asked for *"within 2× of the perfect-information
+baseline"* — 0.06 m. Unachievable, and for a physical reason rather than an
+implementation one. Perfect information has no glint; a real seeker sees a
+target as a scattering body roughly 1.5 m across, and which part of it dominates
+the return wanders from pulse to pulse. As range falls that metre-scale wander
+subtends a *growing* angle, so the last second of flight is the noisiest. No
+filter can average away an error that peaks exactly when there is no time left
+to average. Sub-metre is the floor the physics allows, so the criterion became
+the one that decides an engagement: does the round arrive inside its lethal
+radius.
+
+**Phase 3** originally compared miss distances against a straight crossing
+target. Induced drag ended pure pursuit's overshoot, so it now converges on a
+straight target and the comparison stopped separating the two laws — not because
+pursuit improved, but because the test had been measuring an artefact. It is now
+flown against a weaving target, where the order of magnitude returns and then
+some. A criterion that survives a physics correction unchanged was probably
+measuring the wrong thing.
 
 ## Install
 
@@ -276,8 +346,11 @@ Stated up front, because the boundary of a model is part of the model:
   taken as the velocity vector, i.e. zero angle of attack.
 - Flat, non-rotating earth. No Coriolis, no earth curvature.
 - Exponential atmosphere, `rho = 1.225 * exp(-h / 8500)`.
-- Point-mass aerodynamics: a drag coefficient and a reference area, no full
-  aerodynamic database.
+- Point-mass aerodynamics: a constant zero-lift drag coefficient plus an induced
+  term `k·Cn²`, no Mach dependence and no wind-tunnel database. The missile
+  spends only half a second of a twelve-second flight in the transonic band, so
+  a Mach-indexed table would change little; induced drag, which was missing
+  until recently, changed a great deal.
 - The seeker is modelled at the measurement level — true geometry corrupted by
   noise, latency and dropouts — not at the level of transmitted waveforms.
 

@@ -8,6 +8,60 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Turning costs energy.** `Aerodynamics` now adds lift-induced drag,
+  `Cd = Cd0 + k*Cn^2`. The factor is not a new free constant: a body at
+  incidence makes its normal force perpendicular to its own axis rather than to
+  the flight path, so the streamwise share is `Cn*sin(alpha) ~ Cn^2 / Cn_alpha`,
+  and the lift-curve slope is the peak lift coefficient over the angle it needs
+  — both of which the airframe already declared. At full lift that is roughly
+  four times the zero-lift drag. Until now the missile manoeuvred for free, and
+  every result in the project was flattered by it. The coefficient is an
+  engineering estimate rather than a citation, and says so in the source;
+  Fleeman or DATCOM would supply a real one.
+- Three genuinely three-dimensional target manoeuvres. `barrel_roll` rotates a
+  constant-g pull about the flight path, so the target corkscrews — a helix no
+  plane contains, and the one manoeuvre that makes the 3D viewer earn its place,
+  since it is nearly indistinguishable from a weave in plan view. `jink` pulls
+  hard in uncorrelated random directions at a fixed interval, deterministic from
+  a seed: where a weave punishes an estimator that smooths too hard, a jink
+  punishes any estimator at all. And `weave` and `break_turn` gained `bank_deg`,
+  so either can be flown in any plane from a flat turn through a pure pull-up to
+  a split-S.
+- `barrel-roll` and `jink` ship as scenarios, and the reference file documents
+  every new key. Both currently *miss* with a realistic seeker — 31 m and 15 m —
+  which is a finding rather than a defect, and the one Phase 7 exists to answer.
+
+### Changed
+
+- **Induced drag overturned a headline result and replaced it with a better
+  one.** Pure pursuit used to miss a straight crossing target by 40.8 m; slowed
+  by its own turning it no longer overshoots, so it settles into a stern chase
+  and now hits by 1 cm. That is not pursuit being rescued: it takes 18.8 s
+  against proportional navigation's 13.5, and arrives at 72 m/s of closing speed
+  against 284. And the moment the target manoeuvres at all, the old gap returns
+  and widens — 89 m against 6 m on a weave, 434 m against 3 m on a break turn.
+  The original claim was partly an artefact of a missile fast enough to
+  overshoot; the replacement is stronger and rests on time and terminal energy
+  rather than miss distance alone.
+- Phase 3's exit criterion is now flown against a *weaving* crossing target. A
+  criterion that survives a physics correction unchanged was probably measuring
+  the wrong thing; this one did not, and the order of magnitude returns against
+  a target that does anything at all (14.8×).
+- The bearing-drift test measures *spread* rather than peak. Pursuit's
+  line-of-sight rate no longer runs away — it sweeps up and then collapses as it
+  settles into the chase — so comparing peaks stopped detecting the failure
+  while the failure was still there. PN holds the rate inside a factor of 2.1;
+  pursuit's varies by four orders of magnitude.
+- Every headline number re-measured. Phase 4: 1644 m with no estimator. Phase 5:
+  1.05 m with the EKF against a straight target. Against a manoeuvring one the
+  filters now **miss** — 6.94 m on the weave, 4.87 m on the break turn, against
+  a 5 m lethal radius — because the missile spends its energy turning and
+  arrives too slow to correct. Not a regression: the model becoming honest, and
+  exactly the gap augmented proportional navigation is meant to close using the
+  target acceleration the EKF already estimates.
+- `examples/compare_laws.py` reports time to intercept and closing speed
+  alongside miss distance, and adds a weaving case. Miss distance alone cannot
+  tell a clean intercept from a nineteen-second stern chase.
 - Phase 6 — the engagement can be watched. `interceptor.viz.scene` describes
   what to draw at each instant as plain numpy: positions, cumulative trails, the
   sightline, and the derived readout figures. Two renderers consume it.

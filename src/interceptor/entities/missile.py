@@ -88,17 +88,26 @@ class Missile(Entity):
     def acceleration(self, t: float, state: EntityState, world: World) -> Vector:
         acceleration = world.gravity_vector()
 
+        # The guidance command is needed before drag, not after: turning costs
+        # drag, so how hard the missile is pulling right now changes how fast it
+        # is slowing down. Computing drag first and steering afterwards would
+        # let the airframe manoeuvre for free.
+        lateral = self.applied_guidance(state)
+
         if world.config.enable_drag:
             density = air_density(state.altitude)
             acceleration = acceleration + self.aero.drag_acceleration(
-                state.vel, state.mass, density
+                state.vel,
+                state.mass,
+                density,
+                lateral_acceleration=float(np.linalg.norm(lateral)),
             )
 
         thrust = self.motor.thrust(t - self.launch_time)
         if thrust > 0.0:
             acceleration = acceleration + (thrust / state.mass) * self.thrust_direction(state)
 
-        return np.asarray(acceleration + self.applied_guidance(state), dtype=np.float64)
+        return np.asarray(acceleration + lateral, dtype=np.float64)
 
     def applied_guidance(self, state: EntityState) -> Vector:
         """The held guidance command, capped by what the air can supply *now*.

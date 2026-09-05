@@ -1,0 +1,39 @@
+# What a pilot who knows a missile is coming actually does.
+#
+# Not a tidy sinusoid but a series of violent, uncorrelated breaks in random
+# directions, changing every 1.5 s. Where a weave punishes an estimator that
+# smooths too hard, a jink punishes any estimator at all: a
+# constant-acceleration model is wrong the instant the direction changes, and
+# nothing in the history predicts the next one.
+#
+# Deterministic from `seed`, so a result is reproducible. Change the seed to
+# fly a different sequence of breaks.
+
+name = "jink"
+description = "Target breaking hard in random directions every 1.5 s"
+duration = 30.0
+
+[missile]
+position = [0.0, 0.0, 1000.0]
+speed = 60.0
+
+[target]
+position = [0.0, 6000.0, 1000.0]
+velocity = [250.0, 0.0, 0.0]
+
+[target.manoeuvre]
+kind = "jink"
+amplitude_g = 7.0
+interval = 1.5
+seed = 0
+
+[guidance]
+law = "pronav"
+navigation_constant = 3.0
+
+[seeker]
+enabled = true
+
+[estimator]
+kind = "ekf"
+jerk_sigma = 150.0   # a jink needs a filter that gives up on its model quickly

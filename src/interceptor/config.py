@@ -46,7 +46,9 @@ from interceptor.airframe.propulsion import Motor
 from interceptor.core.state import Vector
 from interceptor.entities.target import (
     Manoeuvre,
+    barrel_roll,
     break_turn,
+    jink,
     straight_and_level,
     weave,
 )
@@ -191,20 +193,45 @@ def _vector(table: dict[str, Any], key: str, path: str, default: Vector | None =
 # Sections
 # --------------------------------------------------------------------------
 def _read_manoeuvre(table: dict[str, Any], path: str) -> Manoeuvre:
-    kind = _choice(table, "kind", ("straight", "weave", "break_turn"), "straight", path)
+    kind = _choice(
+        table,
+        "kind",
+        ("straight", "weave", "break_turn", "barrel_roll", "jink"),
+        "straight",
+        path,
+    )
     if kind == "straight":
         _known(table, {"kind"}, path)
         return straight_and_level()
+
     if kind == "weave":
-        _known(table, {"kind", "amplitude_g", "period"}, path)
+        _known(table, {"kind", "amplitude_g", "period", "bank_deg"}, path)
         return weave(
             amplitude_g=_number(table, "amplitude_g", 6.0, path, minimum=0.0),
             period=_number(table, "period", 4.0, path, minimum=1e-3),
+            bank_deg=_number(table, "bank_deg", 0.0, path, minimum=-180.0, maximum=180.0),
         )
-    _known(table, {"kind", "amplitude_g", "start_time"}, path)
+
+    if kind == "barrel_roll":
+        _known(table, {"kind", "amplitude_g", "period"}, path)
+        return barrel_roll(
+            amplitude_g=_number(table, "amplitude_g", 5.0, path, minimum=0.0),
+            period=_number(table, "period", 4.0, path, minimum=1e-3),
+        )
+
+    if kind == "jink":
+        _known(table, {"kind", "amplitude_g", "interval", "seed"}, path)
+        return jink(
+            amplitude_g=_number(table, "amplitude_g", 7.0, path, minimum=0.0),
+            interval=_number(table, "interval", 1.5, path, minimum=1e-3),
+            seed=_integer(table, "seed", 0, path),
+        )
+
+    _known(table, {"kind", "amplitude_g", "start_time", "bank_deg"}, path)
     return break_turn(
         amplitude_g=_number(table, "amplitude_g", 7.0, path, minimum=0.0),
         start_time=_number(table, "start_time", 0.0, path, minimum=0.0),
+        bank_deg=_number(table, "bank_deg", 0.0, path, minimum=-180.0, maximum=180.0),
     )
 
 
@@ -232,7 +259,13 @@ def _read_motor(table: dict[str, Any], path: str) -> Motor:
 def _read_aero(table: dict[str, Any], path: str) -> Aerodynamics:
     _known(
         table,
-        {"drag_coefficient", "reference_area", "max_lateral_g", "max_lift_coefficient"},
+        {
+            "drag_coefficient",
+            "reference_area",
+            "max_lateral_g",
+            "max_lift_coefficient",
+            "peak_lift_angle_deg",
+        },
         path,
     )
     return Aerodynamics(
@@ -240,6 +273,9 @@ def _read_aero(table: dict[str, Any], path: str) -> Aerodynamics:
         reference_area=_number(table, "reference_area", 0.02, path, minimum=1e-6),
         max_lateral_g=_number(table, "max_lateral_g", 30.0, path, minimum=0.0),
         max_lift_coefficient=_number(table, "max_lift_coefficient", 2.50, path, minimum=1e-3),
+        peak_lift_angle_deg=_number(
+            table, "peak_lift_angle_deg", 25.0, path, minimum=1.0, maximum=89.0
+        ),
     )
 
 

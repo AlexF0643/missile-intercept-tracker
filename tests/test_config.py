@@ -175,7 +175,7 @@ def test_an_unrecognisable_key_lists_the_alternatives() -> None:
     [
         ('[guidance]\nlaw = "homing"', "must be one of"),
         ('[estimator]\nkind = "particle"', "must be one of"),
-        ('[target.manoeuvre]\nkind = "barrel_roll"', "must be one of"),
+        ('[target.manoeuvre]\nkind = "immelmann"', "must be one of"),
     ],
 )
 def test_an_unknown_choice_names_the_valid_ones(text: str, message: str) -> None:

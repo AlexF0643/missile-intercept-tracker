@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +11,16 @@ import pytest
 from interceptor.core.state import EntityState
 from interceptor.core.world import World, WorldConfig
 from interceptor.entities.missile import Missile
-from interceptor.entities.target import Target, break_turn, straight_and_level, weave
+from interceptor.entities.target import (
+    Target,
+    _horizontal_right_of,
+    _lift_axis_of,
+    barrel_roll,
+    break_turn,
+    jink,
+    straight_and_level,
+    weave,
+)
 from interceptor.sim.engagement import ground_impact, run
 from interceptor.sim.recorder import Recorder
 from interceptor.sim.scheduler import Scheduler
@@ -169,3 +179,92 @@ def test_a_break_turn_only_starts_when_told() -> None:
 
     assert lateral[times <= 3.0].max() < 1e-9
     assert lateral[-1] > 100.0
+
+
+# --------------------------------------------------------------------------
+# Three-dimensional manoeuvres
+# --------------------------------------------------------------------------
+FLYING_NORTH = EntityState(pos=np.zeros(3), vel=np.array([0.0, 250.0, 0.0]))
+
+
+def test_the_manoeuvre_frame_is_right_handed() -> None:
+    """Right is east of north, and lift is up. Get this wrong and every banked
+    manoeuvre goes the wrong way."""
+    right = _horizontal_right_of(FLYING_NORTH.vel)
+    lift = _lift_axis_of(FLYING_NORTH.vel)
+    assert right == pytest.approx([1.0, 0.0, 0.0])
+    assert lift == pytest.approx([0.0, 0.0, 1.0])
+    assert float(np.dot(right, lift)) == pytest.approx(0.0)
+
+
+def test_a_flat_weave_stays_in_the_horizontal_plane() -> None:
+    """The default must be exactly what it was before banking existed."""
+    flat = weave(6.0, 4.0)
+    for t in np.linspace(0.0, 4.0, 9):
+        assert flat(float(t), FLYING_NORTH)[2] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_a_ninety_degree_bank_weaves_vertically() -> None:
+    vertical = weave(6.0, 4.0, bank_deg=90.0)
+    command = vertical(0.0, FLYING_NORTH)
+    assert abs(command[2]) > 0.0
+    assert command[0] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_a_barrel_roll_holds_its_magnitude_and_rotates_its_direction() -> None:
+    """Constant g, turning direction — which is what makes it a helix rather
+    than a weave, and what a plan view cannot distinguish."""
+    roll = barrel_roll(5.0, 4.0)
+    peak = 5.0 * 9.80665
+
+    directions = []
+    for t in (0.0, 1.0, 2.0, 3.0):
+        command = roll(t, FLYING_NORTH)
+        assert float(np.linalg.norm(command)) == pytest.approx(peak)
+        directions.append(command / peak)
+
+    # A quarter period apart, so successive directions are perpendicular.
+    for earlier, later in pairwise(directions):
+        assert float(np.dot(earlier, later)) == pytest.approx(0.0, abs=1e-9)
+    # And half a period apart it has reversed.
+    assert float(np.dot(directions[0], directions[2])) == pytest.approx(-1.0)
+
+
+def test_a_barrel_roll_leaves_the_horizontal_plane() -> None:
+    """The property the 3D viewer exists for."""
+    roll = barrel_roll(5.0, 4.0)
+    vertical = [abs(float(roll(float(t), FLYING_NORTH)[2])) for t in np.linspace(0, 4, 17)]
+    assert max(vertical) > 0.9 * 5.0 * 9.80665
+
+
+def test_a_jink_changes_direction_between_intervals_and_holds_within_one() -> None:
+    evasion = jink(7.0, interval=1.5, seed=0)
+    peak = 7.0 * 9.80665
+
+    within = [evasion(t, FLYING_NORTH) for t in (0.1, 0.7, 1.4)]
+    for command in within:
+        assert command == pytest.approx(within[0])
+        assert float(np.linalg.norm(command)) == pytest.approx(peak)
+
+    assert evasion(1.6, FLYING_NORTH) != pytest.approx(within[0])
+
+
+def test_a_jink_is_reproducible_from_its_seed() -> None:
+    """Determinism from a seed, which is what makes a Monte Carlo run mean
+    anything."""
+    times = np.linspace(0.0, 12.0, 25)
+    first = [jink(7.0, 1.5, seed=4)(float(t), FLYING_NORTH) for t in times]
+    again = [jink(7.0, 1.5, seed=4)(float(t), FLYING_NORTH) for t in times]
+    different = [jink(7.0, 1.5, seed=5)(float(t), FLYING_NORTH) for t in times]
+
+    assert all(a == pytest.approx(b) for a, b in zip(first, again, strict=True))
+    assert any(a != pytest.approx(b) for a, b in zip(first, different, strict=True))
+
+
+@pytest.mark.parametrize(
+    ("factory", "kwargs"),
+    [(weave, {"period": 0.0}), (barrel_roll, {"period": -1.0}), (jink, {"interval": 0.0})],
+)
+def test_nonsense_timings_are_rejected(factory: object, kwargs: dict[str, float]) -> None:
+    with pytest.raises(ValueError, match="must be positive"):
+        factory(6.0, **kwargs)  # type: ignore[operator]

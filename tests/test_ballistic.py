@@ -15,9 +15,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from interceptor.airframe.aero import Aerodynamics
 from interceptor.core.state import EntityState, Vector
 from interceptor.core.world import STANDARD_GRAVITY, World, WorldConfig
 from interceptor.entities.missile import Missile
+from interceptor.entities.target import break_turn
+from interceptor.guidance.pronav import ProportionalNavigation
+from interceptor.sim import scenarios
 from interceptor.sim.engagement import run
 
 DURATION = 10.0
@@ -134,3 +138,76 @@ def test_range_and_apex_match_the_textbook_formulae(elevation_deg: float) -> Non
 
     assert position[:, 2].max() == pytest.approx(expected_apex, abs=1e-3)
     assert _range_at_ground_crossing(position) == pytest.approx(expected_range, abs=0.01)
+
+
+# --------------------------------------------------------------------------
+# Induced drag
+# --------------------------------------------------------------------------
+def test_a_body_pulling_no_g_has_only_zero_lift_drag() -> None:
+    """The guarantee that made the change safe: ballistics are untouched.
+
+    Every result from Phase 1 onwards was computed without induced drag, so if
+    a non-manoeuvring body saw any of it, the parabola test would have moved.
+    """
+    aero = Aerodynamics()
+    assert aero.total_drag_coefficient(0.0, 500.0, 85.0, 1.0) == pytest.approx(
+        aero.drag_coefficient
+    )
+
+
+def test_turning_costs_drag() -> None:
+    """The whole point. Before this, the airframe manoeuvred for free."""
+    aero = Aerodynamics()
+    gentle = aero.total_drag_coefficient(2.0 * 9.80665, 546.0, 70.0, 1.089)
+    hard = aero.total_drag_coefficient(10.0 * 9.80665, 546.0, 70.0, 1.089)
+    assert hard > gentle > aero.drag_coefficient
+    # Induced drag goes as the square of the normal force, so five times the g
+    # is twenty-five times the induced term.
+    induced_gentle = gentle - aero.drag_coefficient
+    induced_hard = hard - aero.drag_coefficient
+    assert induced_hard == pytest.approx(25.0 * induced_gentle, rel=1e-6)
+
+
+def test_the_induced_drag_factor_follows_from_the_lift_curve() -> None:
+    """``k = 1 / Cn_alpha``, and the slope is peak lift over the angle it needs.
+
+    Asserted as a relationship rather than a magic number, so that changing the
+    airframe's lift capability changes what its turns cost, automatically and in
+    the right direction.
+    """
+    aero = Aerodynamics(max_lift_coefficient=2.5, peak_lift_angle_deg=25.0)
+    assert aero.induced_drag_factor == pytest.approx(np.deg2rad(25.0) / 2.5)
+
+    # A more efficient airframe — the same lift at a smaller angle — pays less.
+    efficient = Aerodynamics(max_lift_coefficient=2.5, peak_lift_angle_deg=15.0)
+    assert efficient.induced_drag_factor < aero.induced_drag_factor
+
+
+def test_induced_drag_is_bounded_by_the_lift_limit() -> None:
+    """It cannot run away, because the airframe cannot exceed its own max lift.
+
+    Worth pinning down: an unbounded ``k * Cn^2`` looks alarming, but ``Cn`` is
+    capped by ``available_lateral_acceleration``, so the worst case is a fixed
+    multiple of the zero-lift drag rather than something that diverges.
+    """
+    aero = Aerodynamics()
+    speed, mass, density = 546.0, 70.0, 1.089
+    limit = aero.available_lateral_acceleration(speed, mass, density)
+    worst = aero.total_drag_coefficient(limit, speed, mass, density)
+    ceiling = aero.drag_coefficient + aero.induced_drag_factor * aero.max_lift_coefficient**2
+    assert worst <= ceiling + 1e-9
+    assert worst / aero.drag_coefficient < 6.0
+
+
+def test_a_manoeuvring_missile_arrives_slower_than_a_straight_one() -> None:
+    """End to end: the correction has to show up in the trajectory, not just
+    in a coefficient."""
+    straight = scenarios.head_on()
+    world, detector = straight.build(ProportionalNavigation(3.0))
+    calm = run(world, duration=straight.duration, dt=1e-3, stop=detector)
+
+    hard = scenarios.crossing().with_manoeuvre(break_turn(7.0, start_time=6.0))
+    world, detector = hard.build(ProportionalNavigation(3.0))
+    working = run(world, duration=hard.duration, dt=1e-3, stop=detector)
+
+    assert working.recorder.speed("missile")[-1] < calm.recorder.speed("missile")[-1]

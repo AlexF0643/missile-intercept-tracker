@@ -5,6 +5,15 @@ magnitude on the crossing geometry. Asserting the *comparison* rather than an
 absolute number is what makes the test meaningful — it would still fail if a
 change made both laws worse together, which an absolute threshold would not
 catch.
+
+The comparison is flown against a *weaving* crossing target rather than a
+straight one. That is not to flatter PN; it is because modelling the energy cost
+of turning changed what pursuit does against a straight target. Slowed by
+induced drag it no longer overshoots, so it converges into a stern chase and
+eventually arrives — eventually being the operative word, at 40% more time and a
+quarter of the closing speed. Against anything that manoeuvres, the order of
+magnitude is back and then some: 89 m against 6 m on a weave, 434 m against 3 m
+on a break turn.
 """
 
 from __future__ import annotations
@@ -13,6 +22,7 @@ import numpy as np
 import pytest
 
 from interceptor.core.state import EntityState
+from interceptor.entities.target import weave
 from interceptor.guidance.pronav import ProportionalNavigation
 from interceptor.guidance.pursuit import PurePursuit
 from interceptor.sensing.track import Track
@@ -131,14 +141,33 @@ def test_the_law_reports_its_constant_in_its_name() -> None:
 # --------------------------------------------------------------------------
 def test_pronav_beats_pure_pursuit_on_the_crossing_geometry() -> None:
     """The Phase 3 exit criterion: at least an order of magnitude better."""
-    _, pursuit = _fly(scenarios.crossing(), PurePursuit(gain=4.0))
-    _, pronav = _fly(scenarios.crossing(), ProportionalNavigation(3.0))
+    scenario = scenarios.crossing().with_manoeuvre(weave(6.0, 4.0))
+    _, pursuit = _fly(scenario, PurePursuit(gain=4.0))
+    _, pronav = _fly(scenario, ProportionalNavigation(3.0))
 
     assert pursuit is not None
     assert pronav is not None
     assert pronav.miss_distance < pursuit.miss_distance / 10.0, (
         f"pursuit {pursuit.miss_distance:.3f} m vs pronav {pronav.miss_distance:.3f} m"
     )
+
+
+def test_pronav_arrives_sooner_and_with_more_energy() -> None:
+    """The advantage that survives even where pursuit does eventually hit.
+
+    Against a target obliging enough to fly straight, pure pursuit gets there
+    too — by chasing it down over nearly twenty seconds and arriving with its
+    speed spent. Miss distance alone cannot tell those two outcomes apart, and
+    a round with no closing speed left has no answer to a target that changes
+    its mind.
+    """
+    _, pursuit = _fly(scenarios.crossing(), PurePursuit(gain=4.0))
+    _, pronav = _fly(scenarios.crossing(), ProportionalNavigation(3.0))
+
+    assert pursuit is not None
+    assert pronav is not None
+    assert pronav.time < pursuit.time
+    assert pronav.closing_speed > 2.0 * pursuit.closing_speed
 
 
 def test_pronav_hits_the_crossing_target() -> None:
@@ -154,6 +183,11 @@ def test_pronav_uses_less_acceleration_than_pursuit_to_do_better() -> None:
     A better intercept usually costs more effort. Here it costs less: pure
     pursuit spends the endgame hauling the missile around onto a sightline that
     keeps moving, while PN removed the need for that turn at the start.
+
+    Flown against a straight target on purpose. This is a claim about the
+    *mechanism* — the turn PN avoids having to make — and a weaving target
+    obscures it, because then both laws are working hard for reasons that have
+    nothing to do with the geometry either of them chose.
     """
     pursuit_run, _ = _fly(scenarios.crossing(), PurePursuit(gain=4.0))
     pronav_run, _ = _fly(scenarios.crossing(), ProportionalNavigation(3.0))
@@ -194,16 +228,32 @@ def _line_of_sight_rate(result: RunResult) -> tuple[np.ndarray, np.ndarray]:
     return record.time, np.asarray(np.linalg.norm(omega, axis=1))
 
 
-def test_pronav_holds_the_bearing_drift_where_pursuit_lets_it_run_away() -> None:
+def test_pronav_holds_the_bearing_steady_where_pursuit_lets_it_swing() -> None:
     """The mechanism, measured rather than asserted.
 
-    Note what this does *not* claim. PN does not drive the line-of-sight rate to
-    zero here, and should not be expected to: gravity is a continuous
-    disturbance, and a proportional loop against a constant disturbance settles
-    at a constant non-zero error rather than eliminating it. What PN does is
-    hold that error small and *steady* — around 0.03 rad/s throughout — while
-    pure pursuit's grows by an order of magnitude as the geometry runs away from
-    it. The growth is the failure, not the magnitude.
+    Proportional navigation works by holding the line-of-sight rate *constant*:
+    a bearing that does not change while the range falls is, by definition, a
+    collision. Note what this does not claim — PN does not drive the rate to
+    zero, and should not be expected to, because gravity is a continuous
+    disturbance and a proportional loop against one settles at a small constant
+    error rather than eliminating it.
+
+    So the quantity to measure is steadiness, not magnitude. PN holds the rate
+    inside a factor of about two across the whole engagement, while pure
+    pursuit's sweeps up as it hauls itself onto a moving sightline and then
+    collapses towards zero as it gives up and settles into a stern chase. That
+    swing is the failure: the sightline is doing something entirely different at
+    the end of the engagement from the start, which is precisely what a
+    collision course is not.
+
+    This test used to compare *peak* rates and demand a factor of ten. Adding
+    induced drag ended pursuit's overshoot and with it the runaway peak, so that
+    comparison stopped measuring anything — the peak fell while the behaviour
+    stayed exactly as wrong. Spread catches what peak no longer does.
+
+    Flown against a straight target on purpose: a weave drives the
+    line-of-sight rate itself, so neither law could hold it steady and the
+    measurement would be of the target rather than of the guidance.
     """
     pursuit_run, _ = _fly(scenarios.crossing(), PurePursuit(gain=4.0))
     pronav_run, _ = _fly(scenarios.crossing(), ProportionalNavigation(3.0))
@@ -214,13 +264,16 @@ def test_pronav_holds_the_bearing_drift_where_pursuit_lets_it_run_away() -> None
         time, rate = _line_of_sight_rate(result)
         return np.asarray(rate[(time > 3.0) & (time < time[-1] - 0.5)])
 
+    def spread(rate: np.ndarray) -> float:
+        return float(rate.max()) / max(float(rate.min()), 1e-9)
+
     pursuit_rate = window(pursuit_run)
     pronav_rate = window(pronav_run)
 
-    assert pronav_rate.max() < pursuit_rate.max() / 10.0, (
-        f"pursuit peaked at {pursuit_rate.max():.4f} rad/s, pronav at {pronav_rate.max():.4f}"
+    assert spread(pronav_rate) < 3.0, (
+        f"pronav should hold the bearing rate steady; spread was {spread(pronav_rate):.1f}x"
     )
-    # Steady, not merely small: the peak is close to the average.
-    assert pronav_rate.max() < 2.0 * pronav_rate.mean()
-    # Pure pursuit, by contrast, diverges.
-    assert pursuit_rate.max() > 4.0 * pursuit_rate.mean()
+    assert spread(pursuit_rate) > 20.0, (
+        f"pursuit should not hold it steady; spread was {spread(pursuit_rate):.1f}x"
+    )
+    assert pronav_rate.mean() < pursuit_rate.mean() / 2.0
