@@ -26,6 +26,7 @@ from interceptor.viz.plots import THEMES, Theme, _new_figure
 from interceptor.viz.scene import Storyboard
 
 if TYPE_CHECKING:
+    from matplotlib.artist import Artist
     from matplotlib.figure import Figure
 
 __all__ = ["render_flight", "save_flight"]
@@ -277,12 +278,25 @@ def save_flight(
     from matplotlib.animation import FuncAnimation
 
     figure, draw = render_flight(storyboard, theme=theme, orbit=orbit)
+
+    def animate(index: int) -> list[Artist]:
+        """Adapt ``draw`` to what FuncAnimation is annotated to want.
+
+        The stubs ask for a function returning the artists it changed, which
+        matters only under ``blit=True``; without blitting matplotlib ignores
+        the return value and redraws everything, which is what a 3D axes needs
+        anyway. Returning an empty list satisfies the annotation in every
+        version. The alternative — a ``type: ignore`` — is worse than it looks:
+        matplotlib has already loosened this annotation once, and under
+        ``strict`` an ignore that stops being necessary is itself an error, so
+        the suppression breaks on exactly the upgrade it was meant to survive.
+        """
+        draw(index)
+        return []
+
     animation = FuncAnimation(
         figure,
-        # The stubs demand a function returning artists, which is only true
-        # under blit=True. Without blitting matplotlib ignores the return value
-        # and redraws the lot, which is what a rotating 3D axes needs anyway.
-        draw,  # type: ignore[arg-type]
+        animate,
         frames=len(storyboard.frames),
         interval=1000.0 / storyboard.fps,
         blit=False,

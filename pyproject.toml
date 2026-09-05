@@ -49,7 +49,11 @@ live = ["vpython>=7.6"]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
-    "ruff>=0.6",
+    # Pinned to a minor range, unlike the libraries. A formatter is not a
+    # dependency you want floating: 0.16 began formatting Python inside
+    # Markdown, which reformatted the README and failed `ruff format --check`
+    # on a commit that had not touched a line of Python. Bump this on purpose.
+    "ruff>=0.16,<0.17",
     "mypy>=1.11",
     "pre-commit>=3.7",
 ]

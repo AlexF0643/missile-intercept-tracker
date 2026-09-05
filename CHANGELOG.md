@@ -33,6 +33,17 @@ All notable changes to this project are documented here. The format follows
   the axis. An air-to-air engagement is 6 km across and 150 m tall; drawn to a
   true cube it is a smear through empty sky. The distortion is necessary, so it
   is labelled rather than hidden.
+- CI's lint job no longer breaks when the toolchain moves under it. Two
+  separate cases, both from tools newer than the ones on the development
+  machine. A `type: ignore` on the `FuncAnimation` callback became *unused*
+  once matplotlib loosened that annotation, and under `strict` an unnecessary
+  ignore is itself an error — so the suppression failed on exactly the upgrade
+  it existed to survive. It is replaced by a small adapter returning an empty
+  artist list, which satisfies every version of the stub without suppressing
+  anything. And ruff 0.16 began formatting Python inside Markdown, which
+  reformatted the README and failed `ruff format --check` on a commit that had
+  not touched a line of Python; ruff is now pinned to a minor range, because a
+  formatter is not a dependency worth floating.
 - `save_flight` chooses its writer before building the animation. Asking for an
   `.mp4` on a machine without ffmpeg raised the right error, but only after
   constructing a `FuncAnimation` that was then collected unrendered — which

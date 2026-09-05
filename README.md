@@ -121,11 +121,25 @@ output can be checked by a test. `view` opens a real WebGL scene through VPython
 engagement plays. Both drive the same scene model, so they cannot disagree about
 where anything is.
 
-To make your own, copy one and edit it:
+To make your own, copy one and edit it. `reference` is the annotated one —
+every setting there is, with its default and a note on what it does:
 
 ```bash
-interceptor show crossing --raw > my-scenario.toml
+interceptor show reference --raw > my-scenario.toml
 interceptor run my-scenario.toml
+```
+
+You can also drive it from Python rather than the shell:
+
+```python
+from interceptor.config import load_bundled
+from interceptor.sim.engagement import run
+
+spec = load_bundled("crossing")  # or config.load("my-scenario.toml")
+world, detector = spec.build(seed=0)
+result = run(world, duration=spec.scenario.duration, dt=1e-3, stop=detector)
+
+print(f"{detector.result.miss_distance:.2f} m, hit={detector.result.hit}")
 ```
 
 Every physical quantity is in there — launch geometry, motor, airframe limits,

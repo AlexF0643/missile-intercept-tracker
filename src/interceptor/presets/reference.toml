@@ -1,0 +1,109 @@
+# Every setting there is, with its default, in one file.
+#
+#   interceptor show reference --raw > my-scenario.toml
+#   interceptor run my-scenario.toml
+#
+# Every key below is optional except the two marked REQUIRED — delete anything
+# you are not changing and the default applies. Distances are metres, speeds
+# metres per second, times seconds, angles radians unless the name says degrees.
+# Positions and velocities are [east, north, up].
+#
+# An unrecognised key is an error, not a shrug, so a typo tells you rather than
+# silently doing nothing.
+
+name = "reference"
+description = "Every option, annotated — copy this to start your own"
+
+duration = 30.0        # give up after this many simulated seconds
+lethal_radius = 5.0    # a closest approach inside this counts as a hit
+
+# --------------------------------------------------------------------------
+# The missile
+# --------------------------------------------------------------------------
+[missile]
+position = [0.0, 0.0, 1000.0]   # REQUIRED
+speed = 60.0                    # off the rail, aimed at the target's start
+# velocity = [0.0, 60.0, 0.0]   # or state it outright; overrides `speed`
+mass = 85.0                     # kg, at launch; the motor burns it down
+autopilot_lag = 0.20            # s, first-order lag from command to response
+
+# A boost-only solid motor. Add sustain_* for a boost-sustain profile.
+[missile.motor]
+boost_thrust = 20000.0     # N
+boost_duration = 2.5       # s
+sustain_thrust = 0.0       # N
+sustain_duration = 0.0     # s
+specific_impulse = 240.0   # s; sets how fast propellant mass is consumed
+
+[missile.aero]
+drag_coefficient = 0.30    # constant — no Mach dependence is modelled
+reference_area = 0.02      # m^2
+max_lateral_g = 30.0       # structural limit
+max_lift_coefficient = 2.50
+# Available g is the lesser of the structural limit and what dynamic pressure
+# can produce, so a slow missile cannot pull its rated g however much you ask.
+
+# --------------------------------------------------------------------------
+# The target
+# --------------------------------------------------------------------------
+[target]
+position = [0.0, 6000.0, 1000.0]   # REQUIRED
+velocity = [250.0, 0.0, 0.0]       # REQUIRED
+
+[target.manoeuvre]
+kind = "weave"        # straight | weave | break_turn
+amplitude_g = 6.0     # weave and break_turn
+period = 4.0          # weave only, seconds per cycle
+# start_time = 8.0    # break_turn only — when the turn begins
+#
+# Keys are checked against the kind, so `period` under a break_turn is an
+# error rather than a setting that quietly does nothing.
+
+# --------------------------------------------------------------------------
+# Guidance
+# --------------------------------------------------------------------------
+[guidance]
+law = "pronav"              # pronav | pursuit | none
+navigation_constant = 3.0   # pronav only; 3 is optimal against a
+                            # non-manoeuvring target, 4-5 leads harder
+# "pursuit" steers at where the target is and is kept as a deliberate
+# baseline — it misses a crossing target by 40 m. "none" flies unguided.
+
+# --------------------------------------------------------------------------
+# The seeker
+# --------------------------------------------------------------------------
+[seeker]
+enabled = true             # false gives perfect information — the Phase 3
+                           # baseline, and the first thing to try when a
+                           # change makes the miss distance worse
+range_sigma = 3.0          # m; barely matters to proportional navigation
+angle_sigma = 0.002        # rad; the dominant error. Cross-range error is
+                           # range x sigma, so 2 mrad at 5 km is 10 m
+range_rate_sigma = 0.4     # m/s; Doppler is the precise channel
+glint_sigma = 1.5          # m — a *distance*, so its angular effect grows as
+                           # the range falls. This sets the terminal miss floor
+gimbal_limit_deg = 40.0    # degrees off boresight before the target is lost
+detection_range = 12000.0  # m, reference range for the R^-4 signal law
+detection_threshold_db = 12.0
+snr_fluctuation_db = 3.0   # cross-section scintillation
+latency_frames = 1         # guidance cycles of processing delay. Small number,
+                           # large effect: see the Phase 5 notes
+
+# --------------------------------------------------------------------------
+# The estimator
+# --------------------------------------------------------------------------
+[estimator]
+kind = "ekf"                        # none | alpha_beta | ekf
+jerk_sigma = 60.0                   # ekf: how strongly the filter disbelieves
+                                    # its own constant-acceleration model.
+                                    # Too small and it refuses to accept a
+                                    # manoeuvre; too large and it chases noise
+initial_velocity_sigma = 400.0      # ekf
+initial_acceleration_sigma = 100.0  # ekf
+# alpha = 0.25                      # alpha_beta only: position gain
+# beta = 0.031                      # alpha_beta only; defaults to the
+#                                   # critically damped alpha^2 / (2 - alpha)
+#
+# "none" is the naive Phase 4 behaviour — velocity by differencing successive
+# noisy positions, which misses by 1.5 km. Worth running once to see why the
+# filter exists.
