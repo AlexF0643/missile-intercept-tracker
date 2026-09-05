@@ -1,0 +1,46 @@
+# The case augmented proportional navigation was derived for.
+#
+# Same engagement as break-turn, same seeker, same filter — only the guidance
+# law differs. The target pulls a sustained 7 g from t = 8 s, so its
+# acceleration genuinely is constant, which is exactly the assumption apn's lead
+# term is built on. Plain pronav misses this by 4.87 m and scores 3 hits in 6;
+# apn misses by 1.62 m and scores 6.
+#
+# Change one line to see the other half of the story:
+#
+#   [target.manoeuvre] kind = "barrel_roll", amplitude_g = 5.0, period = 4.0
+#
+# That rotates a constant-magnitude pull instead of holding a constant one. The
+# assumption fails, apn's lead never decays, and the miss goes from 30.68 m to
+# 469.36 m — worse than the law it augments, on the same track.
+
+name = "augmented"
+description = "Augmented pronav against the sustained break turn it was derived for"
+duration = 30.0
+
+[missile]
+position = [0.0, 0.0, 1000.0]
+speed = 60.0
+
+[target]
+position = [0.0, 6000.0, 1000.0]
+velocity = [250.0, 0.0, 0.0]
+
+[target.manoeuvre]
+kind = "break_turn"
+amplitude_g = 7.0
+start_time = 8.0
+
+[guidance]
+law = "apn"
+navigation_constant = 3.0
+
+[seeker]
+enabled = true
+
+# apn needs an estimate of target acceleration, and only the ekf produces one.
+# Behind an alpha_beta filter it would report zero and apn would silently be
+# pronav — correct behaviour, but not what this preset is for.
+[estimator]
+kind = "ekf"
+jerk_sigma = 60.0

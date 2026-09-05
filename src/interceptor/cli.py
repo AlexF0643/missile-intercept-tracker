@@ -61,7 +61,11 @@ def _fly(spec: EngagementSpec, seed: int) -> tuple[RunResult, Intercept | None]:
 
 
 def _describe(spec: EngagementSpec) -> str:
-    law = "unguided" if spec.law is None else type(spec.law).__name__
+    # The law's own name rather than its class's. It carries the navigation
+    # constant, which the class name does not, and "ProNav (N=3)" against
+    # "APN (N=3)" is the distinction a reader of this line actually wants —
+    # where the class names differ only by a prefix.
+    law = "unguided" if spec.law is None else spec.law.name
     if spec.seeker is None:
         # An estimator behind a perfect track has nothing to estimate, and
         # `Scenario.build` ignores it. Saying which one is configured would
@@ -160,7 +164,7 @@ def _storyboard(
     # A shorter title than `run` prints: this one has to fit inside a 578-pixel
     # frame, and the estimator's tuning is not what a viewer is watching for.
     estimator = "" if spec.estimator is None else type(spec.estimator()).__name__
-    law = "unguided" if spec.law is None else type(spec.law).__name__
+    law = "unguided" if spec.law is None else spec.law.name
     if spec.seeker is None:
         subtitle = f"{law}, perfect information"
     else:

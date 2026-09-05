@@ -204,6 +204,28 @@ def test_the_estimator_comparison_survives_a_single_panel() -> None:
     assert len(plot_estimator_comparison(single).axes) == 1
 
 
+def test_every_panel_shows_its_own_data_however_far_apart_they_are() -> None:
+    """The panels share one x range, and it has to cover all of them.
+
+    This is a regression test for a figure that came out blank. The panels were
+    built with ``sharex`` and then each set its own limits, so the last panel's
+    won and any panel whose data was smaller fell off the left edge — silently,
+    because an axis with nothing in view still draws perfectly happily. Comparing
+    proportional navigation with its augmented form is what exposed it: the
+    barrel-roll panel runs to 469 m while the straight-and-level panel sits at
+    1 m, and three of the five panels came out empty.
+    """
+    spread = {
+        "Tiny": {"PN": np.array([0.8, 1.2]), "APN": np.array([1.9, 2.1])},
+        "Huge": {"PN": np.array([30.0, 44.0]), "APN": np.array([470.0, 600.0])},
+    }
+    figure = plot_estimator_comparison(spread)
+    for axis in figure.axes:
+        low, high = axis.get_xlim()
+        assert low < 0.8, "the smallest point must be inside the view"
+        assert high > 600.0, "so must the largest"
+
+
 def test_the_estimator_comparison_rejects_nothing_to_compare() -> None:
     with pytest.raises(ValueError, match="nothing to compare"):
         plot_estimator_comparison({})

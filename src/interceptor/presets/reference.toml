@@ -79,13 +79,22 @@ period = 4.0          # weave and barrel_roll, seconds per cycle
 # Guidance
 # --------------------------------------------------------------------------
 [guidance]
-law = "pronav"              # pronav | pursuit | none
-navigation_constant = 3.0   # pronav only; 3 is optimal against a
+law = "pronav"              # pronav | apn | pursuit | none
+navigation_constant = 3.0   # pronav and apn; 3 is optimal against a
                             # non-manoeuvring target, 4-5 leads harder
 # "pursuit" steers at where the target is and is kept as a deliberate baseline.
 # Against a straight target it does eventually arrive, by running it down over
 # nearly twenty seconds with a quarter of the closing speed; give the target a
 # weave and it misses by 89 m where pronav misses by 6. "none" flies unguided.
+#
+# "apn" adds (N/2) * the target's own acceleration across the sightline — the
+# optimal solution for a target holding that acceleration *constant*. Where the
+# assumption holds it is transformative: the 7 g break turn goes from 4.87 m and
+# 3 hits in 6 to 1.62 m and 6 in 6. Where it does not, it is worse than nothing.
+# A barrel roll rotates a constant-magnitude pull, so apn's lead never decays and
+# it pays induced drag all the way down for lift that buys nothing: 30.68 m
+# becomes 469.36 m. Needs an estimator that reports acceleration — the ekf does,
+# alpha_beta reports zero and apn quietly degrades to pronav behind it.
 
 # --------------------------------------------------------------------------
 # The seeker

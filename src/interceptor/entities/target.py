@@ -215,3 +215,7 @@ class Target(Entity):
     def acceleration(self, t: float, state: EntityState, world: World) -> Vector:
         del world  # a kinematic target ignores gravity and drag by design
         return self.manoeuvre(t, state)
+
+    def commanded_manoeuvre(self, t: float) -> Vector:
+        """A scripted target's acceleration is exactly its manoeuvre."""
+        return self.manoeuvre(t, self.state)

@@ -18,7 +18,7 @@ from interceptor.config import (
     load_bundled,
     loads,
 )
-from interceptor.guidance.pronav import ProportionalNavigation
+from interceptor.guidance.pronav import AugmentedProportionalNavigation, ProportionalNavigation
 from interceptor.guidance.pursuit import PurePursuit
 
 MINIMAL = """
@@ -105,11 +105,23 @@ def test_the_gimbal_limit_is_written_in_degrees() -> None:
 
 @pytest.mark.parametrize(
     ("law", "expected"),
-    [("pronav", ProportionalNavigation), ("pursuit", PurePursuit)],
+    [
+        ("pronav", ProportionalNavigation),
+        ("apn", AugmentedProportionalNavigation),
+        ("pursuit", PurePursuit),
+    ],
 )
 def test_guidance_laws_can_be_selected(law: str, expected: type) -> None:
     spec = loads(MINIMAL + f'\n[guidance]\nlaw = "{law}"\n')
     assert isinstance(spec.law, expected)
+
+
+def test_apn_is_a_distinct_law_and_not_just_pronav() -> None:
+    """``isinstance`` alone would pass for pronav, since apn subclasses it."""
+    plain = loads(MINIMAL + '\n[guidance]\nlaw = "pronav"\n').law
+    augmented = loads(MINIMAL + '\n[guidance]\nlaw = "apn"\n').law
+    assert not isinstance(plain, AugmentedProportionalNavigation)
+    assert isinstance(augmented, AugmentedProportionalNavigation)
 
 
 def test_guidance_can_be_switched_off_entirely() -> None:

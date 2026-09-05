@@ -8,6 +8,41 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Augmented proportional navigation**, `a = N*V_c*(Omega x r_hat) +
+  (N/2)*a_t_perp`. The coefficient is the optimal-control solution for a target
+  holding *constant* acceleration, under the same criterion that gives `N = 3`
+  against one holding none — not a tuning knob. Selected with `law = "apn"`,
+  and it needs an estimator that reports acceleration: the EKF does, the
+  alpha-beta filter reports zero and APN degrades silently and correctly to
+  plain PN behind it. `TruthTrack` now supplies the target's real acceleration
+  through a new optional `Entity.commanded_manoeuvre` hook, so APN's ceiling can
+  be measured separately from the filter's estimate of it.
+- **It recovers both cases induced drag broke, completely.** Through a 2 mrad
+  seeker and the EKF, six seeds: the weave goes from 6.94 m and 0 hits from 6 to
+  1.21 m and 6 from 6; the break turn from 4.87 m and 3 from 6 to 1.62 m and 6
+  from 6. Nothing else changed — same missile, same seeker, same filter.
+- **And it fails instructively, which is the more useful half.** Against a
+  barrel roll APN is twelve times *worse* than the law it augments (469 m
+  against 31 m), and it fails that way on a **perfect** track, so the diagnosis
+  is unambiguous: this is the premise, not the estimate. A barrel roll holds
+  acceleration magnitude constant while rotating its direction, so APN's lead
+  never decays — a standing 7.5 g command pointing somewhere new every second.
+  It commands less peak acceleration than PN (13 g against 246 g), uses more on
+  average (5.6 g against 4.8 g), pays induced drag for all of it and arrives at
+  265 m/s where PN arrives at 407. The jink fails for a different reason worth
+  keeping apart: APN handles it well on truth (1.5 m against 11.1 m) and badly
+  through the filter. Not because the filter is slow — measured, the EKF picks
+  up each new break in about 20 ms — but because its acceleration error over the
+  last two seconds runs at a median 12.0 g against a target pulling 7.0, and APN
+  amplifies that by `N/2` into the command. On the weave the same filter is
+  wrong by 1.8 g and the term is worth a factor of six. So the jink is the
+  estimate and a manoeuvre-detecting filter would help; the barrel roll is the
+  premise and nothing downstream can. Both are asserted in tests rather than
+  papered over.
+- `augmented` ships as a scenario — the break turn APN was derived for, with a
+  one-line edit in the comments to switch it to the barrel roll it cannot do —
+  and `examples/augmented_pronav.py` measures all five behaviours on both a
+  perfect track and a real one, writing `runs/augmented-pronav.png`.
 - **Turning costs energy.** `Aerodynamics` now adds lift-induced drag,
   `Cd = Cd0 + k*Cn^2`. The factor is not a new free constant: a body at
   incidence makes its normal force perpendicular to its own axis rather than to
@@ -59,6 +94,10 @@ All notable changes to this project are documented here. The format follows
   arrives too slow to correct. Not a regression: the model becoming honest, and
   exactly the gap augmented proportional navigation is meant to close using the
   target acceleration the EKF already estimates.
+- `interceptor show` and the 3D viewer's subtitle name the guidance law by its
+  own name rather than its class's — `ProNav (N=3)` against `APN (N=3)`, where
+  the class names differ only by a prefix and the navigation constant, which is
+  what actually changes the behaviour, appeared in neither.
 - `examples/compare_laws.py` reports time to intercept and closing speed
   alongside miss distance, and adds a weaving case. Miss distance alone cannot
   tell a clean intercept from a nineteen-second stern chase.
@@ -197,6 +236,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **A comparison figure whose panels could come out blank.**
+  `plot_estimator_comparison` built its panels with `sharex` and then let each
+  panel set its own x limits, so the last one silently won and any panel whose
+  data was smaller fell off the left edge — an axis with nothing in view draws
+  perfectly happily and warns about nothing. It went unnoticed while every panel
+  held similar numbers; comparing PN with APN, where one panel runs to 469 m and
+  another sits at 1 m, left three of five panels empty. The limits are now
+  computed once over every panel, which is what sharing a scale was supposed to
+  mean. Header spacing is stated in inches rather than figure fractions for the
+  same class of reason: at two rows instead of five the caption landed on top of
+  the title.
 - **The filter was three-sigma overconfident, and nothing else would have found
   it.** The seeker models one frame of processing latency and stamps each
   measurement with when it was taken. `FilteredTrack` corrected the estimator's

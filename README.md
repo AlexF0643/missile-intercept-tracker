@@ -9,9 +9,11 @@ manoeuvring target a hundred times a second, a filter turns those measurements
 into a track, and a proportional-navigation law turns that track into steering
 commands — rendered live in 3D.
 
-> **Status: Phase 6, plus an honesty pass on the physics.** Engagements can be
-> watched rather than only plotted — and, since turning now costs energy, the
-> missile can no longer manoeuvre for free.
+> **Status: Phase 7, part one.** Engagements can be watched rather than only
+> plotted; turning now costs energy, so the missile can no longer manoeuvre for
+> free; and the guidance law can now use the target acceleration the filter
+> estimates — which recovers the manoeuvring cases that cost broke, and fails
+> instructively where its assumption does not hold. Monte Carlo next.
 
 ![A 7 g break turn intercepted, rendered in 3D](docs/assets/flight.gif)
 
@@ -133,9 +135,9 @@ It also moved the Phase 5 result. Against a manoeuvring target, proportional
 navigation with a well-tuned EKF now **misses**: 6.94 m on the weave, 4.87 m on
 the break turn, where the lethal radius is 5. The missile spends its energy
 turning and arrives too slow to correct. That is not a regression in the code —
-it is the model becoming honest, and it is precisely the gap augmented
-proportional navigation exists to close in Phase 7, using the target
-acceleration the EKF is already estimating and already
+it is the model becoming honest, and it is the gap
+[the next section](#a-law-that-knows-the-target-is-turning) closes, using the
+target acceleration the EKF is already estimating and already
 [verified honest](#is-the-filter-honest-about-its-own-uncertainty).
 
 **The coefficient is an engineering estimate, not a citation.** The form is
@@ -157,6 +159,79 @@ The mechanism is visible in the middle panel: PN's separation collapses, while
 pursuit's decays slowly and is still decaying when the run ends. And on a
 straight target PN does it using *less* acceleration, not more — it removes the
 need for the turn rather than flying it faster.
+
+## A law that knows the target is turning
+
+Proportional navigation drives the line-of-sight rate to zero, which is exactly
+right against a target flying straight and always one step behind a target that
+is accelerating: it reacts to bearing drift the manoeuvre has *already* caused.
+Augmented proportional navigation adds a term for the acceleration itself.
+
+```
+a = N·V_c·(Ω × r̂)  +  (N/2)·a_t⊥
+```
+
+`N/2` is not a tuning knob. It is the optimal-control solution for a target
+holding **constant** acceleration, derived under the same criterion that gives
+`N = 3` against one holding none. Those two words are the whole story, and the
+result splits cleanly along them:
+
+```
+crossing geometry, seeker + EKF, 6 seeds     PN (N=3)          APN (N=3)
+  straight and level                     1.05 m   6/6      1.98 m   6/6
+  break turn, 7 g at t=8 s               4.87 m   3/6      1.62 m   6/6
+  weave, 6 g / 4 s                       6.94 m   0/6      1.21 m   6/6
+  jink, 7 g every 1.5 s                 14.51 m   0/6     23.36 m   0/6
+  barrel roll, 5 g / 4 s                30.68 m   0/6    469.36 m   0/6
+```
+
+![PN against APN across five target behaviours](docs/assets/augmented-pronav.png)
+
+The two rows induced drag broke come back, and they come back completely: the
+break turn goes from a coin toss to six hits from six, and the weave from never
+hitting to never missing. Both of those targets hold their acceleration long
+enough for the assumption to be true, and where it is true the term is worth
+three to six times in miss distance — and, more to the point, the difference
+between a round that arrives inside its lethal radius and one that does not.
+
+The bottom two rows are the more useful half. **A barrel roll makes APN twelve
+times worse than the law it augments** — and it does so on a *perfect* track,
+which is what makes the diagnosis unambiguous. This is not the filter estimating
+acceleration badly. A barrel roll holds acceleration *magnitude* constant while
+rotating its *direction*, so APN's lead never decays: the missile carries a
+standing 7.5 g command that points somewhere different every second. It commands
+less peak acceleration than PN does (13 g against 246 g) and yet uses more on
+average, pays induced drag for every bit of it, and arrives at 265 m/s where PN
+arrives at 407 — with no energy left to correct anything. A lead term that is
+wrong in a way that *costs* is worse than no lead term at all.
+
+The jink fails for a different reason, and the difference is the point. On a
+perfect track APN handles it well — 1.52 m against PN's 11.11 m — because inside
+each 1.5 s segment the acceleration really is constant. It is only through the
+seeker that it loses. The obvious explanation is that the filter is slow to
+notice each new break, and that explanation is wrong: measured, the EKF picks up
+a direction change in about 20 ms, a fiftieth of a segment. What actually
+happens is that **its acceleration estimate is wrong by more than the signal**.
+Over the last two seconds of flight the EKF's acceleration error runs at a
+median 12.0 g against a target pulling 7.0 g, and APN multiplies that error by
+`N/2` before adding it to the command — some 18 g of noise steered straight into
+the airframe. On the weave the same filter is wrong by 1.8 g and the same term
+is worth a factor of six.
+
+So the two failures want different answers. The jink is the *estimate*, and a
+manoeuvre-detecting estimator would help; augmentation is never better than the
+acceleration estimate behind it, and that is the hardest quantity in the whole
+sensing chain to measure — the second derivative of a noisy position. The barrel
+roll is the *premise*, and no estimator can help at all.
+
+Both are asserted in the tests rather than fixed. A law that helps enormously
+where its assumption holds and hurts badly where it does not is a more useful
+thing to know about than one silently switched for whichever wins.
+
+```bash
+interceptor run augmented                 # the break turn, with APN
+python examples/augmented_pronav.py       # the figure above (~6 min)
+```
 
 ## Run one without writing any Python
 
@@ -210,9 +285,13 @@ position = [0.0, 6000.0, 1000.0]
 velocity = [250.0, 0.0, 0.0]
 
 [target.manoeuvre]
-kind = "break_turn"      # straight | weave | break_turn
+kind = "break_turn"      # straight | weave | break_turn | barrel_roll | jink
 amplitude_g = 7.0
 start_time = 8.0
+
+[guidance]
+law = "apn"              # pronav | apn | pursuit | none
+navigation_constant = 3.0
 
 [seeker]
 angle_sigma = 0.002      # radians; the dominant error
@@ -237,7 +316,8 @@ setting does nothing.
 ## Diagnostic figures
 
 ```bash
-python examples/estimator_comparison.py   # the figure above (~7 min)
+python examples/estimator_comparison.py   # miss distance by estimator (~7 min)
+python examples/augmented_pronav.py       # PN against APN, five behaviours (~6 min)
 python examples/seeker_sweep.py           # miss distance against seeker noise
 python examples/compare_laws.py           # pursuit vs PN, all three geometries
 python examples/pursuit.py                # one law, five diagnostic panels
@@ -251,6 +331,7 @@ crossing geometry, realistic seeker, 6 seeds       median miss    hits
   alpha-beta, a=0.05, 7 g break turn                    16.03 m   0/6
   EKF, jerk 60, straight target                          1.05 m   6/6
   EKF, jerk 60, 7 g break turn                           4.87 m   3/6
+  EKF, jerk 60, 7 g break turn, APN                      1.62 m   6/6
   perfect information (Phase 3 baseline)                 0.34 m   6/6
 ```
 
@@ -294,7 +375,8 @@ it.
 | 4 | Seeker: frames, gimbal gating, noise, dropouts | Monotonic noise-vs-miss-distance sweep | ✅ 0.33 m → 1644 m |
 | 5 | Estimation: alpha-beta, then EKF | Inside the 5 m lethal radius on a realistic seeker; survives a 0.5 s dropout | ✅ 1644 m → 1.05 m |
 | 6 | Real-time 3D viewer | A recording good enough to head this README | ✅ above |
-| 7 | Augmented PN, Monte Carlo | Recover the manoeuvring cases induced drag broke; miss distribution over 1000 runs | ⬜ |
+| 7a | Augmented PN | Recover the manoeuvring cases induced drag broke | ✅ 0/6 → 6/6 on the weave |
+| 7b | Monte Carlo | Miss distribution over 1000 runs | ⬜ |
 
 Two criteria were rewritten rather than quietly restated, and both are worth the
 paragraph.

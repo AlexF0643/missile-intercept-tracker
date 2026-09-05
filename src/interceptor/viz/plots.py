@@ -746,9 +746,24 @@ def plot_estimator_comparison(
     estimators = list(next(iter(results.values())))
     # Height follows the row count only. The panels sit side by side, so adding
     # a behaviour widens the figure's content, it does not lengthen it.
-    figure = _new_figure(13.5, 2.3 + 0.62 * len(estimators), palette.surface)
-    axes = figure.subplots(1, len(behaviours), sharex=True)
-    axes = np.atleast_1d(axes)
+    height = 2.3 + 0.62 * len(estimators)
+    figure = _new_figure(13.5, height, palette.surface)
+    axes = np.atleast_1d(figure.subplots(1, len(behaviours)))
+
+    # One x range for every panel, computed over all of them. The panels must
+    # share a scale for the across-panel comparison to mean anything, but they
+    # are *not* built with ``sharex``: that shares one Axes' limits, and each
+    # panel then sets its own, so the last one silently wins and any panel whose
+    # data is smaller falls off the left edge. Nothing warns; the panel just
+    # comes out empty. Computing the union here says what is meant instead of
+    # relying on which axis happened to be configured last.
+    everything = [v for panel in results.values() for series in panel.values() for v in series]
+    if not everything:
+        msg = "nothing to compare"
+        raise ValueError(msg)
+    floor = min([*everything, lethal_radius] + ([baseline] if baseline else []))
+    ceiling = max([*everything, lethal_radius])
+    limits = (floor * 0.45, ceiling * 3.2)
 
     positions = np.arange(len(estimators))
     for ax, behaviour in zip(axes, behaviours, strict=True):
@@ -814,10 +829,7 @@ def plot_estimator_comparison(
         ax.set_yticklabels(estimators if ax is axes[0] else [])
         ax.set_ylim(len(estimators) - 0.4, -0.75)
         ax.set_xscale("log")
-        ax.set_xlim(
-            min(medians.min(), baseline or medians.min()) * 0.45,
-            max(worst.max(), lethal_radius) * 3.2,
-        )
+        ax.set_xlim(*limits)
         _style(ax, palette, "Miss distance (m)", "", behaviour)
         ax.tick_params(axis="y", labelsize=9.5)
         for label in ax.get_yticklabels():
@@ -830,7 +842,11 @@ def plot_estimator_comparison(
         fontweight="bold",
         x=0.02,
         ha="left",
-        y=0.98,
+        # Header positions are fractions of the figure, but a title is a fixed
+        # number of points tall, so they are stated in inches and converted.
+        # Otherwise a figure with two rows instead of five is short enough that
+        # the caption lands on top of the title.
+        y=1.0 - 0.26 / height,
     )
     caption = (
         "Dot is the median across seeds, tail runs to the worst"
@@ -838,8 +854,8 @@ def plot_estimator_comparison(
         + f"Hollow dot missed the {lethal_radius:.0f} m lethal radius (dashed)"
         + (f"; dotted is perfect information at {baseline:.2f} m." if baseline else ".")
     )
-    figure.text(0.02, 0.905, caption, color=palette.muted, fontsize=10, ha="left")
-    figure.subplots_adjust(top=0.76, bottom=0.13, left=0.13, right=0.98, wspace=0.12)
+    figure.text(0.02, 1.0 - 0.62 / height, caption, color=palette.muted, fontsize=10, ha="left")
+    figure.subplots_adjust(top=1.0 - 1.3 / height, bottom=0.13, left=0.13, right=0.98, wspace=0.12)
     return figure
 
 

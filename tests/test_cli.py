@@ -75,6 +75,18 @@ def test_show_raw_prints_a_file_that_can_be_edited_and_rerun(
     assert main(["show", str(copied)]) == 0
 
 
+def test_show_names_the_law_with_its_navigation_constant(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Class names would read `ProportionalNavigation` against
+    `AugmentedProportionalNavigation` — a prefix apart, with the constant that
+    changes the behaviour invisible in both."""
+    assert main(["show", "augmented"]) == 0
+    assert "APN (N=3)" in capsys.readouterr().out
+    assert main(["show", "crossing"]) == 0
+    assert "ProNav (N=3)" in capsys.readouterr().out
+
+
 def test_show_reports_perfect_information_without_naming_an_estimator(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

@@ -149,6 +149,11 @@ class TruthTrack(TrackSource):
             time=t,
             relative_position=target.pos - missile.pos,
             relative_velocity=target.vel - missile.vel,
+            # The target's real acceleration, not an estimate of it. Augmented
+            # proportional navigation consumes this, and giving it the truth
+            # here is what makes "how well could APN possibly do?" a question
+            # with an answer.
+            target_acceleration=self.target.commanded_manoeuvre(t),
             valid=True,
         )
 

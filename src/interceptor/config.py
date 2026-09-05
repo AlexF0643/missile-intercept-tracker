@@ -53,7 +53,10 @@ from interceptor.entities.target import (
     weave,
 )
 from interceptor.guidance.base import GuidanceLaw
-from interceptor.guidance.pronav import ProportionalNavigation
+from interceptor.guidance.pronav import (
+    AugmentedProportionalNavigation,
+    ProportionalNavigation,
+)
 from interceptor.guidance.pursuit import PurePursuit
 from interceptor.sensing.filters import AlphaBeta, Estimator, ExtendedKalman
 from interceptor.sensing.seeker import SeekerConfig
@@ -280,15 +283,19 @@ def _read_aero(table: dict[str, Any], path: str) -> Aerodynamics:
 
 
 def _read_guidance(table: dict[str, Any], path: str) -> GuidanceLaw | None:
-    law = _choice(table, "law", ("pronav", "pursuit", "none"), "pronav", path)
+    law = _choice(table, "law", ("pronav", "apn", "pursuit", "none"), "pronav", path)
     if law == "none":
         _known(table, {"law"}, path)
         return None
     if law == "pursuit":
         _known(table, {"law"}, path)
         return PurePursuit()
+
     _known(table, {"law", "navigation_constant"}, path)
-    return ProportionalNavigation(_number(table, "navigation_constant", 3.0, path, minimum=0.0))
+    constant = _number(table, "navigation_constant", 3.0, path, minimum=0.0)
+    if law == "apn":
+        return AugmentedProportionalNavigation(constant)
+    return ProportionalNavigation(constant)
 
 
 def _read_seeker(table: dict[str, Any], path: str) -> SeekerConfig | None:

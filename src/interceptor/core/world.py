@@ -83,6 +83,24 @@ class Entity(ABC):
         del t, state
         return 0.0
 
+    def commanded_manoeuvre(self, t: float) -> Vector | None:
+        """The acceleration this body is commanding of itself, if it knows.
+
+        ``None`` by default, because most entities do not have a plan — a
+        missile's acceleration is the outcome of thrust, drag and guidance
+        rather than something it decides. A scripted target does have one, and
+        overrides this.
+
+        It exists so that a *truth* track can report the target's real
+        acceleration to augmented proportional navigation. That separates two
+        questions which would otherwise be tangled: whether the augmented term
+        is a good idea, and whether the filter's estimate of target acceleration
+        is good enough to feed it. Answering them apart is the whole reason the
+        project keeps a perfect-information baseline.
+        """
+        del t
+        return None
+
     def update_guidance(self, t: float, dt: float) -> None:
         """Hook called at the guidance rate, not the physics rate.
 
