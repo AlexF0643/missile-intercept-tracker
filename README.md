@@ -10,7 +10,7 @@ measurements into a track, and a proportional navigation law turns the track
 into steering commands. You can watch the whole thing in 3D.
 
 I'm a physics undergrad and I built this to understand proportional navigation
-properly, rather than just reading the equation and nodding at it. It grew a bit.
+properly, rather than just reading the equation and nodding at it.
 
 ![A 7 g break turn intercepted, rendered in 3D](docs/assets/flight.gif)
 
@@ -57,7 +57,7 @@ and then caught, which I've left in because they're the most useful part.
 
 Proportional navigation on perfect data intercepts within 34 cm. Give it a real
 seeker and it misses by **1644 m**. Nothing wrong with the guidance law — the
-problem is that I was getting relative velocity by differencing two noisy
+problem is that I was getting relative velocity by finding the difference between two noisy
 positions 10 ms apart, which multiplies a 2 mrad angle error by about a hundred.
 
 Put an estimator in that gap and **1644 m becomes 1.05 m**. Same seeker, same
@@ -451,7 +451,7 @@ from:
 | `design` | Choices that define *this* notional missile: mass, motor, structural limit. A different value describes a different weapon, not a better guess at this one. |
 | `chosen` | Picked because it looked plausible. Thirteen of these, each with a range. |
 
-The last group is the honest bit, and it's what the
+The last group is all estimated, and it's what the
 [Monte Carlo](#how-much-of-this-is-actually-known) samples. Where a real design
 office would open a wind-tunnel database or a link budget, I've written "chosen"
 and given a range instead. Less satisfying than a reference, but better than a
@@ -478,11 +478,11 @@ correlation properly would need a source for it.
 | 7b | Browser app | Change any parameter and re-fly without leaving the window | ✅ `interceptor serve` |
 | 7c | Monte Carlo | Miss distribution over 1000 runs | ✅ 1600, over noise *and* the constants |
 
-I rewrote two of the exit criteria rather than quietly restating them.
+I rewrote two of the exit criteria rather than restating them.
 
 **Phase 5** originally asked for "within 2× of the perfect-information
 baseline", which is 0.06 m. That's not achievable, and for a physical reason
-rather than a coding one. Perfect information has no glint; a real seeker sees a
+rather as opposed to a coding one. Perfect information has no glint; a real seeker sees a
 target as a scattering body about 1.5 m across and which part dominates the
 return wanders pulse to pulse. As range falls, that metre-scale wander subtends
 a *growing* angle, so the last second of flight is the noisiest part. No filter
