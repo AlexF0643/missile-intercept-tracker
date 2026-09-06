@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from interceptor.core.frames import WORLD_UP, unit
-from interceptor.core.state import EntityState, Vector
+from interceptor.core.frames import WORLD_UP, cross, unit
+from interceptor.core.state import EntityState, Vector, magnitude
 from interceptor.core.world import STANDARD_GRAVITY, Entity
 
 if TYPE_CHECKING:
@@ -49,8 +49,8 @@ def straight_and_level() -> Manoeuvre:
 def _horizontal_right_of(velocity: Vector) -> Vector:
     """Unit vector horizontally to the right of the direction of travel."""
     forward = unit(velocity)
-    right = np.cross(forward, WORLD_UP)
-    norm = float(np.linalg.norm(right))
+    right = cross(forward, WORLD_UP)
+    norm = magnitude(right)
     if norm < 1e-9:  # travelling vertically; any horizontal direction will do
         return np.array([1.0, 0.0, 0.0])
     return np.asarray(right / norm, dtype=np.float64)
@@ -65,7 +65,7 @@ def _lift_axis_of(velocity: Vector) -> Vector:
     flown in a plane other than the horizontal.
     """
     forward = unit(velocity)
-    return np.asarray(np.cross(_horizontal_right_of(velocity), forward), dtype=np.float64)
+    return np.asarray(cross(_horizontal_right_of(velocity), forward), dtype=np.float64)
 
 
 def _manoeuvre_axis(velocity: Vector, bank_deg: float) -> Vector:

@@ -17,6 +17,7 @@ from interceptor.guidance.pursuit import PurePursuit
 from interceptor.sim import scenarios
 from interceptor.sim.engagement import RunResult, run
 from interceptor.sim.intercept import Intercept
+from interceptor.sim.montecarlo import Study, Trial
 
 pytest.importorskip("matplotlib", reason="plotting is an optional extra")
 
@@ -27,10 +28,12 @@ from interceptor.viz.plots import (
     plot_comparison,
     plot_engagement,
     plot_estimator_comparison,
+    plot_monte_carlo,
     plot_noise_sweep,
     save_comparison,
     save_engagement,
     save_estimator_comparison,
+    save_monte_carlo,
     save_noise_sweep,
 )
 
@@ -240,5 +243,88 @@ def test_saving_an_estimator_comparison_writes_a_png(tmp_path: Path) -> None:
     path = save_estimator_comparison(
         ESTIMATORS, tmp_path / "estimators.png", hits=HITS, baseline=0.03
     )
+    assert path.exists()
+    assert path.stat().st_size > 5_000
+
+
+# --------------------------------------------------------------------------
+# Monte Carlo
+# --------------------------------------------------------------------------
+def _study(hit_rates: list[float], seeds: int = 8) -> Study:
+    """A study with a chosen probability of kill per draw, for layout tests."""
+    rng = np.random.default_rng(4)
+    trials = [
+        Trial(
+            draw=draw,
+            seed=seed,
+            miss_distance=float(
+                rng.uniform(0.2, 4.5) if rng.random() < rate else rng.uniform(6.0, 90.0)
+            ),
+            hit=rng.random() < rate,
+            time=13.0,
+            arrival_speed=420.0,
+            saturated=0.2,
+            dropouts=0.0,
+            reached_closest_approach=True,
+        )
+        for draw, rate in enumerate(hit_rates)
+        for seed in range(seeds)
+    ]
+    return Study(trials=trials, draws=[{"missile.aero.drag_coefficient": 0.3} for _ in hit_rates])
+
+
+MONTE_CARLO = {
+    "PN (N=3)": _study([0.4, 0.1, 0.9, 0.5]),
+    "APN (N=3)": _study([0.9, 0.2, 1.0, 0.7]),
+}
+SENSITIVITY = [
+    ("missile.aero.drag_coefficient", -0.81),
+    ("seeker.glint_sigma", -0.44),
+    ("missile.aero.max_lift_coefficient", 0.22),
+]
+
+
+def test_the_monte_carlo_figure_has_all_three_panels() -> None:
+    assert len(plot_monte_carlo(MONTE_CARLO, SENSITIVITY).axes) == 3
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_the_monte_carlo_figure_renders_in_both_themes(theme: str) -> None:
+    assert plot_monte_carlo(MONTE_CARLO, SENSITIVITY, theme=theme).get_facecolor() is not None
+
+
+def test_the_cumulative_curve_reaches_every_trial() -> None:
+    """The panel's whole claim is that crossing the lethal radius is the Pk.
+
+    That only holds if the curve is the complete sample — one step per trial,
+    ending at 1.0 — so this checks the drawing rather than trusting it.
+    """
+    figure = plot_monte_carlo(MONTE_CARLO, SENSITIVITY)
+    curves = [line for line in figure.axes[0].lines if np.size(line.get_xdata()) > 2]
+    assert len(curves) == 2
+    for line in curves:
+        fractions = np.asarray(line.get_ydata())
+        assert fractions.max() == pytest.approx(1.0)
+        assert len(fractions) == len(MONTE_CARLO["PN (N=3)"].nominal_trials())
+
+
+def test_the_monte_carlo_figure_survives_having_no_sensitivity() -> None:
+    """A single-draw study has nothing to correlate against, and should still draw."""
+    figure = plot_monte_carlo(MONTE_CARLO, [])
+    assert not figure.axes[2].get_visible()
+
+
+def test_the_monte_carlo_figure_rejects_nothing_to_plot() -> None:
+    with pytest.raises(ValueError, match="nothing to plot"):
+        plot_monte_carlo({}, SENSITIVITY)
+
+
+def test_the_monte_carlo_figure_rejects_an_unknown_theme() -> None:
+    with pytest.raises(ValueError, match="theme must be one of"):
+        plot_monte_carlo(MONTE_CARLO, SENSITIVITY, theme="mono")
+
+
+def test_saving_a_monte_carlo_figure_writes_a_png(tmp_path: Path) -> None:
+    path = save_monte_carlo(MONTE_CARLO, SENSITIVITY, tmp_path / "mc.png")
     assert path.exists()
     assert path.stat().st_size > 5_000

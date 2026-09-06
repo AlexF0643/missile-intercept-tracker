@@ -22,17 +22,17 @@ from __future__ import annotations
 
 import numpy as np
 
-from interceptor.core.state import Vector
+from interceptor.core.state import Vector, magnitude
 
 __all__ = ["Autopilot", "clamp_magnitude"]
 
 
 def clamp_magnitude(vector: Vector, limit: float) -> Vector:
     """Scale ``vector`` down to ``limit`` if it is longer, preserving direction."""
-    magnitude = float(np.linalg.norm(vector))
-    if magnitude <= limit or magnitude < 1e-12:
+    length = magnitude(vector)
+    if length <= limit or length < 1e-12:
         return np.asarray(vector, dtype=np.float64)
-    return np.asarray(vector * (limit / magnitude), dtype=np.float64)
+    return np.asarray(vector * (limit / length), dtype=np.float64)
 
 
 class Autopilot:

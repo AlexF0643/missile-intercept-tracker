@@ -19,7 +19,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from interceptor.core.state import EntityState, Vector
+from interceptor.core.frames import cross
+from interceptor.core.state import EntityState, Vector, magnitude
 from interceptor.core.world import Entity
 from interceptor.sensing.filters import Estimator
 from interceptor.sensing.seeker import Measurement, Seeker, relative_position_from
@@ -55,7 +56,7 @@ class Track:
     @property
     def range(self) -> float:
         """Distance to the target, metres."""
-        return float(np.linalg.norm(self.relative_position))
+        return magnitude(self.relative_position)
 
     @property
     def line_of_sight(self) -> Vector:
@@ -91,12 +92,12 @@ class Track:
         denominator = float(np.dot(r, r))
         if denominator < _EPS:
             return np.zeros(3, dtype=np.float64)
-        return np.asarray(np.cross(r, self.relative_velocity) / denominator, dtype=np.float64)
+        return np.asarray(cross(r, self.relative_velocity) / denominator, dtype=np.float64)
 
     @property
     def los_rate(self) -> float:
         """Magnitude of the line-of-sight rate, rad/s."""
-        return float(np.linalg.norm(self.los_rate_vector))
+        return magnitude(self.los_rate_vector)
 
     @property
     def time_to_go(self) -> float:

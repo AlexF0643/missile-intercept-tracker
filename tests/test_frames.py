@@ -17,11 +17,13 @@ from interceptor.core.frames import (
     az_el_from_frd,
     body_axes,
     body_to_world,
+    cross,
     enu_from_az_el,
     frd_from_az_el,
     unit,
     world_to_body,
 )
+from interceptor.core.state import magnitude
 
 N_RANDOM = 1000
 SEED = 20260902
@@ -117,3 +119,43 @@ def test_unit_rejects_a_zero_vector() -> None:
 def test_body_axes_rejects_a_body_at_rest() -> None:
     with pytest.raises(ValueError, match="zero-length"):
         body_axes(np.zeros(3))
+
+
+# --------------------------------------------------------------------------
+# The three-vector primitives
+# --------------------------------------------------------------------------
+def test_the_explicit_cross_agrees_with_numpy() -> None:
+    """Agreeing with the reference is the entire specification.
+
+    Written out by hand for speed — it was a fifth of an engagement's runtime
+    through `np.cross`, which supports stacked vectors along arbitrary axes and
+    dispatches through all of that to do nine multiplications. So the test is
+    not hand-worked examples but the library function it replaced, over a
+    thousand random pairs spanning fifteen orders of magnitude.
+    """
+    rng = np.random.default_rng(7)
+    for _ in range(1000):
+        scale = 10.0 ** rng.uniform(-7.0, 8.0)
+        a = rng.normal(size=3) * scale
+        b = rng.normal(size=3) * scale
+        assert cross(a, b) == pytest.approx(np.cross(a, b), rel=1e-12, abs=0.0)
+
+
+def test_the_explicit_cross_keeps_the_right_hand_rule() -> None:
+    """One worked case anyway, because a test that only compares two
+    implementations cannot notice them agreeing on the wrong convention."""
+    east, north, up = np.eye(3)
+    assert cross(east, north) == pytest.approx(up)
+    assert cross(north, up) == pytest.approx(east)
+    assert cross(up, east) == pytest.approx(north)
+
+
+def test_magnitude_agrees_with_numpy() -> None:
+    rng = np.random.default_rng(11)
+    for _ in range(1000):
+        v = rng.normal(size=3) * 10.0 ** rng.uniform(-7.0, 8.0)
+        assert magnitude(v) == pytest.approx(float(np.linalg.norm(v)), rel=1e-15, abs=0.0)
+
+
+def test_magnitude_of_nothing_is_nothing() -> None:
+    assert magnitude(np.zeros(3)) == 0.0

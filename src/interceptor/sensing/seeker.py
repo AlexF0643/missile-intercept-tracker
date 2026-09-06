@@ -43,7 +43,7 @@ from interceptor.core.frames import (
     frd_from_az_el,
     world_to_body,
 )
-from interceptor.core.state import EntityState, Vector
+from interceptor.core.state import EntityState, Vector, magnitude
 
 __all__ = [
     "GeometricSeeker",
@@ -223,7 +223,7 @@ class GeometricSeeker(Seeker):
     def _observe(self, t: float, missile: EntityState, target: EntityState) -> Measurement:
         """One un-delayed look at the target."""
         relative = target.pos - missile.pos
-        true_range = float(np.linalg.norm(relative))
+        true_range = magnitude(relative)
         if true_range < _EPS:
             return Measurement.dropout(t, "target coincident with missile")
 

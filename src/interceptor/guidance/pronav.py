@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from interceptor.core.frames import cross
 from interceptor.core.state import EntityState, Vector
 from interceptor.guidance.base import GuidanceLaw, perpendicular_component
 from interceptor.sensing.track import Track
@@ -78,9 +79,7 @@ class ProportionalNavigation(GuidanceLaw):
         # |Omega x r_hat| = |Omega| because Omega is perpendicular to r_hat by
         # construction, so this has magnitude N * V_c * lambda_dot exactly.
         command = (
-            self.navigation_constant
-            * closing
-            * np.cross(track.los_rate_vector, track.line_of_sight)
+            self.navigation_constant * closing * cross(track.los_rate_vector, track.line_of_sight)
         )
 
         if missile.speed < _EPS:

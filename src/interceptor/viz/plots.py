@@ -32,7 +32,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
 import numpy as np
 
@@ -51,10 +51,12 @@ __all__ = [
     "plot_comparison",
     "plot_engagement",
     "plot_estimator_comparison",
+    "plot_monte_carlo",
     "plot_noise_sweep",
     "save_comparison",
     "save_engagement",
     "save_estimator_comparison",
+    "save_monte_carlo",
     "save_noise_sweep",
 ]
 
@@ -877,6 +879,283 @@ def save_estimator_comparison(
         baseline=baseline,
         title=title,
         theme=theme,
+    )
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(destination, facecolor=figure.get_facecolor(), bbox_inches="tight")
+    return destination
+
+
+# --------------------------------------------------------------------------
+# Monte Carlo
+# --------------------------------------------------------------------------
+def plot_monte_carlo(
+    studies: dict[str, Any],
+    sensitivity: Sequence[tuple[str, float]],
+    *,
+    lethal_radius: float = 5.0,
+    title: str | None = None,
+    theme: str = "light",
+) -> Figure:
+    """Three panels: what the round does, what we know, and what we guessed.
+
+    Args:
+        studies: ``{law: Study}``, in the order they should be drawn.
+        sensitivity: ``(constant, rank correlation with Pk)``, most influential
+            first. Computed by the caller, because a plot should not be running
+            statistics of its own.
+
+    **A cumulative distribution rather than a histogram.** A histogram of miss
+    distance needs a bin width nobody can justify, and comparing two of them
+    means overlapping translucent bars. A CDF needs no such choice, and it does
+    something a histogram cannot: where the curve crosses the lethal radius *is*
+    the probability of kill, read straight off the vertical axis. One mark, both
+    the distribution and the headline.
+
+    **The middle panel is the argument this whole phase exists to make.** For
+    each law, one dot per plausible set of constants and a bar for the interval
+    the noise alone gives. The bar is what a conventional Monte Carlo reports;
+    the dots are what the project actually knows. When the dots span more than
+    the bar, the interval is measuring the wrong uncertainty and no number of
+    extra seeds will fix it.
+
+    Colour is the two law slots, which the OKLab/CVD validator passes in both
+    themes — worst adjacent separation 9.2 under deuteranopia, 27.6 for normal
+    vision. The lighter slot sits below 3:1 against the light surface, so every
+    series here is directly labelled as well as coloured and identity never
+    rests on the colour alone.
+    """
+    if theme not in THEMES:
+        msg = f"theme must be one of {sorted(THEMES)}, got {theme!r}"
+        raise ValueError(msg)
+    palette = THEMES[theme]
+    if not studies:
+        msg = "nothing to plot"
+        raise ValueError(msg)
+
+    names = list(studies)
+    colours = {name: palette.laws[i % len(palette.laws)] for i, name in enumerate(names)}
+
+    rows = max(len(sensitivity), 1)
+    height = 5.4 + 0.30 * rows
+    figure = _new_figure(13.5, height, palette.surface)
+    grid = figure.add_gridspec(
+        2,
+        2,
+        height_ratios=[3.4, 0.30 * rows + 0.6],
+        hspace=0.45,
+        wspace=0.22,
+        top=1.0 - 1.45 / height,
+        bottom=0.06,
+        left=0.075,
+        right=0.98,
+    )
+
+    _miss_distribution(figure.add_subplot(grid[0, 0]), palette, studies, colours, lethal_radius)
+    _kill_probabilities(figure.add_subplot(grid[0, 1]), palette, studies, colours)
+    _sensitivity(figure.add_subplot(grid[1, :]), palette, sensitivity)
+
+    figure.suptitle(
+        title if title is not None else "Monte Carlo",
+        color=palette.text,
+        fontsize=15,
+        fontweight="bold",
+        x=0.02,
+        ha="left",
+        y=1.0 - 0.30 / height,
+    )
+    figure.text(
+        0.02,
+        1.0 - 0.70 / height,
+        "Each dot in the middle panel is one plausible set of physical constants. "
+        "The grey bar is what the seeker noise alone would have you believe.",
+        color=palette.muted,
+        fontsize=10,
+        ha="left",
+    )
+    return figure
+
+
+def _miss_distribution(
+    ax: Axes,
+    theme: Theme,
+    studies: dict[str, Any],
+    colours: dict[str, str],
+    lethal_radius: float,
+) -> None:
+    """Cumulative miss distance for the shipped constants, one curve per law."""
+    for index, (name, result) in enumerate(studies.items()):
+        misses = np.sort(np.array([t.miss_distance for t in result.nominal_trials()]))
+        if not misses.size:
+            continue
+        fraction = np.arange(1, misses.size + 1) / misses.size
+        # Stepped: the data is a finite sample, and a smooth curve would imply
+        # intermediate values that were never flown.
+        ax.step(misses, fraction, where="post", color=colours[name], linewidth=2.0)
+
+        # Labelled at the median rather than at the end. Every CDF finishes at
+        # 1.0 by construction, so labelling the last point stacks every series
+        # in the same corner; the medians are where the curves are actually
+        # apart, which is the point of drawing them together.
+        middle = int(np.searchsorted(fraction, 0.5))
+        middle = min(middle, misses.size - 1)
+        ax.annotate(
+            name,
+            (float(misses[middle]), float(fraction[middle])),
+            textcoords="offset points",
+            xytext=(-10, 10 if index % 2 == 0 else -20),
+            ha="right",
+            color=colours[name],
+            fontsize=10,
+            fontweight="bold",
+        )
+
+    ax.axvline(lethal_radius, color=theme.limit, linewidth=1.6, linestyle="--")
+    ax.annotate(
+        f"lethal radius {lethal_radius:.0f} m",
+        (lethal_radius, 0.03),
+        textcoords="offset points",
+        xytext=(7, 0),
+        color=theme.muted,
+        fontsize=9,
+    )
+    ax.set_xscale("log")
+    ax.set_ylim(0.0, 1.03)
+    _style(
+        ax,
+        theme,
+        "Miss distance (m)",
+        "Fraction of launches within",
+        "Crossing the dashed line is the probability of kill",
+    )
+
+
+def _kill_probabilities(
+    ax: Axes, theme: Theme, studies: dict[str, Any], colours: dict[str, str]
+) -> None:
+    """The noise-only interval against the spread across plausible constants."""
+    from interceptor.sim.montecarlo import wilson_interval
+
+    positions = np.arange(len(studies))
+    for y, (name, result) in zip(positions, studies.items(), strict=True):
+        nominal = result.nominal_trials()
+        hits = sum(t.hit for t in nominal)
+        low, high = wilson_interval(hits, max(len(nominal), 1))
+
+        # The interval a conventional study would report, drawn as a solid bar
+        # so that how short it is becomes the visible thing. End ticks as well,
+        # because the interesting cases are the ones where it is so narrow that
+        # a bar alone would look like a missing mark rather than a certain one.
+        ax.plot([low, high], [y, y], color=theme.limit, linewidth=8.0, solid_capstyle="butt")
+        for edge in (low, high):
+            ax.plot(
+                [edge, edge],
+                [y - 0.07, y + 0.07],
+                color=theme.limit,
+                linewidth=2.0,
+                solid_capstyle="butt",
+            )
+
+        # One dot per parameter draw, spread vertically only. Grouped by value
+        # rather than by draw order: most draws land on exactly 0 or exactly 1,
+        # so ordering the offsets by draw index piles them on top of each other
+        # at those two values and leaves the rest of the band empty. Spreading
+        # each group across the band turns the pile into something countable.
+        probabilities = np.array(result.kill_probabilities())
+        offsets = np.zeros(max(len(probabilities), 1))
+        for value in np.unique(probabilities):
+            same = np.flatnonzero(probabilities == value)
+            offsets[same] = np.linspace(-0.17, 0.17, len(same)) if len(same) > 1 else 0.0
+        ax.plot(
+            probabilities,
+            y + offsets,
+            linestyle="none",
+            marker="o",
+            markersize=8,
+            color=colours[name],
+            markeredgecolor=theme.surface,
+            markeredgewidth=2.0,
+        )
+        # The counts at the ends rather than only the range. Most draws land on
+        # exactly 0 or exactly 1, and a pile of overlapping dots says "many"
+        # where the point being made needs "how many".
+        never = int(np.sum(probabilities == 0.0))
+        always = int(np.sum(probabilities == 1.0))
+        ax.annotate(
+            f"{probabilities.min():.2f} to {probabilities.max():.2f} across draws"
+            f"  —  {never} never hit, {always} always, of {len(probabilities)}",
+            (0.5, float(y) + 0.33),
+            ha="center",
+            va="top",
+            color=colours[name],
+            fontsize=9.5,
+            fontweight="bold",
+        )
+
+    ax.set_yticks(positions)
+    ax.set_yticklabels(list(studies))
+    ax.set_ylim(len(studies) - 0.42, -0.72)
+    # Room for a marker sitting exactly on 0 or 1, which most of them do.
+    ax.set_xlim(-0.075, 1.075)
+    _style(ax, theme, "Probability of kill", "", "Grey bar: the 95% interval from noise alone")
+    for label in ax.get_yticklabels():
+        label.set_color(theme.text)
+
+
+def _sensitivity(ax: Axes, theme: Theme, sensitivity: Sequence[tuple[str, float]]) -> None:
+    """Which uncited constant moves the answer, by rank correlation."""
+    if not sensitivity:
+        ax.set_visible(False)
+        return
+
+    names = [path for path, _ in sensitivity]
+    scores = np.array([score for _, score in sensitivity])
+    positions = np.arange(len(names))
+
+    # One hue. Which side of zero a bar sits on already says whether the
+    # constant helps or hurts, and colouring that too would encode it twice.
+    ax.barh(positions, scores, height=0.62, color=theme.missile, zorder=2)
+    ax.axvline(0.0, color=theme.text, linewidth=1.0, zorder=3)
+
+    for y, score in zip(positions, scores, strict=True):
+        ax.annotate(
+            f"{score:+.2f}",
+            (float(score), float(y)),
+            textcoords="offset points",
+            xytext=(7 if score >= 0 else -7, 0),
+            ha="left" if score >= 0 else "right",
+            va="center",
+            color=theme.muted,
+            fontsize=9,
+        )
+
+    ax.set_yticks(positions)
+    ax.set_yticklabels(names, fontsize=9.5)
+    ax.set_ylim(len(names) - 0.4, -0.6)
+    ax.set_xlim(-1.2, 1.2)
+    _style(
+        ax,
+        theme,
+        "Rank correlation with probability of kill",
+        "",
+        "Which of the guesses actually matters",
+    )
+    for label in ax.get_yticklabels():
+        label.set_color(theme.text)
+
+
+def save_monte_carlo(
+    studies: dict[str, Any],
+    sensitivity: Sequence[tuple[str, float]],
+    path: str | Path,
+    *,
+    lethal_radius: float = 5.0,
+    title: str | None = None,
+    theme: str = "light",
+) -> Path:
+    """Render the Monte Carlo figure and write it to ``path``."""
+    figure = plot_monte_carlo(
+        studies, sensitivity, lethal_radius=lethal_radius, title=title, theme=theme
     )
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)

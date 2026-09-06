@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -209,6 +210,66 @@ def _command_view(args: argparse.Namespace) -> int:
     return 0
 
 
+def _command_monte_carlo(args: argparse.Namespace) -> int:
+    """Fly a scenario many times, over noise and over the constants.
+
+    `sweep` varies the seeker's noise, which is the uncertainty everyone
+    remembers. This also varies the numbers nobody looked up, which is usually
+    the larger of the two and is the whole reason the command exists.
+    """
+    import tomllib
+
+    from interceptor.sim.montecarlo import study, wilson_interval
+
+    text = (
+        bundled_text(args.scenario)
+        if args.scenario in bundled_names()
+        else Path(args.scenario).read_text(encoding="utf-8")
+    )
+    scenario = tomllib.loads(text)
+    spec = _resolve(args.scenario)
+
+    total = args.draws * args.seeds
+    print(f"{spec.name}: {_describe(spec)}")
+    print(f"  {args.draws} parameter draws x {args.seeds} seeds = {total} engagements")
+    if args.draws == 1:
+        print("  (--draws 1 is noise only: the conventional answer, and the misleading one)")
+
+    started = time.perf_counter()
+    result = study(
+        scenario,
+        draws=args.draws,
+        seeds=args.seeds,
+        workers=args.workers,
+        name=spec.name,
+        rng_seed=args.rng_seed,
+    )
+    elapsed = time.perf_counter() - started
+
+    nominal = result.nominal_trials()
+    hits = sum(t.hit for t in nominal)
+    low, high = wilson_interval(hits, len(nominal))
+    misses = np.array([t.miss_distance for t in nominal])
+
+    print(f"\n  flown in {elapsed:.0f} s")
+    print("\n  With the constants this project ships:")
+    print(f"    probability of kill   {hits / len(nominal):>8.2f}  [{low:.2f}, {high:.2f}] 95%")
+    print(f"    median miss           {np.median(misses):>8.2f} m")
+    print(f"    90th percentile       {np.percentile(misses, 90):>8.2f} m")
+    print(f"    worst                 {misses.max():>8.2f} m")
+
+    if args.draws > 1:
+        probabilities = np.array(result.kill_probabilities())
+        print("\n  Across constants that are equally plausible:")
+        print(f"    probability of kill   {probabilities.min():.2f} to {probabilities.max():.2f}")
+        print(f"    median across draws   {np.median(probabilities):>8.2f}")
+        print(
+            "\n  The second range is the one to quote. The first assumes the guesses"
+            "\n  in interceptor/uncertainty.py are right."
+        )
+    return 0
+
+
 def _command_serve(args: argparse.Namespace) -> int:
     """Open the whole thing in a browser window.
 
@@ -340,6 +401,27 @@ def _parser() -> argparse.ArgumentParser:
     sweep.add_argument("scenario", help="bundled name or path to a .toml file")
     sweep.add_argument("--seeds", type=int, default=10, help="how many runs (default: 10)")
     sweep.set_defaults(handler=_command_sweep)
+
+    carlo = commands.add_parser(
+        "monte-carlo",
+        help="fly a scenario many times over noise AND over the uncited constants",
+    )
+    carlo.add_argument("scenario", help="bundled name or path to a .toml file")
+    carlo.add_argument(
+        "--draws",
+        type=int,
+        default=20,
+        help="sets of constants to try, drawn from the ranges in "
+        "interceptor/uncertainty.py (default: 20; 1 means noise only)",
+    )
+    carlo.add_argument("--seeds", type=int, default=50, help="noise seeds per draw (default: 50)")
+    carlo.add_argument(
+        "--workers", type=int, default=None, help="processes (default: one per core)"
+    )
+    carlo.add_argument(
+        "--rng-seed", type=int, default=20260906, help="fixes which constants are drawn"
+    )
+    carlo.set_defaults(handler=_command_monte_carlo)
 
     return parser
 

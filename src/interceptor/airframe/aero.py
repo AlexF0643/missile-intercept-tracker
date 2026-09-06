@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from interceptor.core.state import Vector
+from interceptor.core.state import Vector, magnitude
 from interceptor.core.world import STANDARD_GRAVITY
 
 __all__ = ["Aerodynamics"]
@@ -105,7 +105,7 @@ class Aerodynamics:
         exactly as it was: a ballistic trajectory is unchanged, which is why the
         Phase 1 parabola test still holds to 1e-10.
         """
-        speed = float(np.linalg.norm(velocity))
+        speed = magnitude(velocity)
         coefficient = self.total_drag_coefficient(lateral_acceleration, speed, mass, density)
         factor = 0.5 * density * coefficient * self.reference_area * speed / mass
         return np.asarray(-factor * velocity, dtype=np.float64)

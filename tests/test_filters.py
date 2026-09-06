@@ -399,3 +399,84 @@ def test_a_stale_measurement_does_not_bias_the_estimate() -> None:
         f"a one-frame delay moved the mean position error from {prompt:.2f} m to "
         f"{delayed:.2f} m — the measurement epoch is not being honoured"
     )
+
+
+# --------------------------------------------------------------------------
+# The analytic measurement Jacobian
+# --------------------------------------------------------------------------
+def test_the_analytic_jacobian_matches_the_numerical_one() -> None:
+    """The whole safety argument for having hand-derived partials at all.
+
+    The numerical Jacobian was the only implementation for five phases, and the
+    reason given for it was that a sign error in a page of algebra is invisible
+    to review while producing a filter that diverges slowly enough to look like
+    a tuning problem. That reasoning still holds — so the algebra is not
+    reviewed, it is *compared*, over four hundred random geometries covering a
+    range of aspect angles, distances and closing speeds.
+
+    Central differences are themselves only approximate, hence the tolerance:
+    the angle rows use steps of a metre against ranges of a few kilometres, so
+    agreement to about a part in a thousand is all the reference can offer.
+    """
+    rng = np.random.default_rng(20260906)
+    worst = 0.0
+
+    for _ in range(400):
+        # A missile somewhere, flying somewhere, with a target ahead of it in
+        # the rough cone a gimballed seeker could actually be looking through.
+        missile = EntityState(
+            pos=rng.uniform(-2000.0, 2000.0, 3) + np.array([0.0, 0.0, 1500.0]),
+            vel=rng.uniform(-500.0, 500.0, 3) + np.array([0.0, 400.0, 0.0]),
+        )
+        offset = rng.uniform(-1.0, 1.0, 3)
+        offset = offset / np.linalg.norm(offset) * rng.uniform(200.0, 6000.0)
+
+        filter_ = ExtendedKalman()
+        filter_._x = np.concatenate(
+            (
+                missile.pos + offset,
+                missile.vel + rng.uniform(-300.0, 300.0, 3),
+                rng.uniform(-60.0, 60.0, 3),
+            )
+        )
+
+        analytic = filter_._jacobian(missile)
+        numeric = filter_._jacobian_numeric(missile)
+
+        # Compared column by column against that column's own magnitude: the
+        # range row is order 1 and the angle rows order 1e-4, so a single
+        # absolute tolerance would either pass everything or fail everything.
+        scale = np.maximum(np.abs(numeric).max(axis=1, keepdims=True), 1e-9)
+        worst = max(worst, float(np.abs(analytic - numeric).max() / scale.max()))
+        assert np.allclose(analytic / scale, numeric / scale, atol=2e-3)
+
+    assert worst < 2e-3
+
+
+def test_the_jacobian_says_the_seeker_cannot_see_acceleration() -> None:
+    """The last three columns are zero, and that is a statement about physics.
+
+    A seeker measures where the target is and how fast the range is changing.
+    Nothing it reports depends on how hard the target is turning *at that
+    instant*. Acceleration is inferred from the motion model over time, which is
+    why augmented proportional navigation rests on the model being right rather
+    than on the measurement being good.
+    """
+    missile = EntityState(pos=np.zeros(3), vel=np.array([0.0, 500.0, 0.0]))
+    filter_ = ExtendedKalman()
+    filter_._x = np.array([100.0, 4000.0, 200.0, 250.0, -50.0, 10.0, 30.0, -20.0, 5.0])
+    assert np.all(filter_._jacobian(missile)[:, 6:9] == 0.0)
+
+
+def test_the_jacobian_survives_a_target_on_the_boresight() -> None:
+    """Dead ahead makes azimuth undefined and elevation's derivative infinite.
+
+    Outside any real gimbal limit, but a filter passes through odd states while
+    it converges, and one NaN in the Jacobian poisons the covariance for the
+    rest of the flight.
+    """
+    missile = EntityState(pos=np.zeros(3), vel=np.array([0.0, 500.0, 0.0]))
+    filter_ = ExtendedKalman()
+    filter_._x = np.array([0.0, 3000.0, 0.0, 0.0, -300.0, 0.0, 0.0, 0.0, 0.0])
+    H = filter_._jacobian(missile)
+    assert np.all(np.isfinite(H))

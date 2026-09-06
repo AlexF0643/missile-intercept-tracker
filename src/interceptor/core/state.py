@@ -10,13 +10,14 @@ just ``pos[2]``.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Final, TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
 
-__all__ = ["STATE_SIZE", "EntityState", "Vector"]
+__all__ = ["STATE_SIZE", "EntityState", "Vector", "magnitude"]
 
 #: An array of 64-bit floats — length 3 for every position, velocity and
 #: acceleration in the package. Spelled as an explicit ``TypeAlias`` so that a
@@ -25,6 +26,27 @@ Vector: TypeAlias = NDArray[np.float64]
 
 #: Width of the flat state vector: three position, three velocity, one mass.
 STATE_SIZE: Final = 7
+
+
+def magnitude(v: Vector) -> float:
+    """Length of a three-vector.
+
+    ``float(np.linalg.norm(v))`` with the generality removed. ``norm`` supports
+    matrix norms, arbitrary orders, axes and keepdims, and dispatches through
+    all of that on every call; for the 2-norm of a 1-D array it ends up doing
+    ``sqrt(dot(v, v))`` anyway, so this is the same arithmetic and the same
+    answer to the last bit — verified in the tests rather than assumed.
+
+    It earns its place by call count. Profiling one engagement found 273,000
+    norms, more than any other single operation, because every substep of every
+    RK4 step takes a speed, a range and a drag magnitude. At a third of a
+    microsecond apiece that is a tenth of the runtime of a Monte Carlo.
+
+    Safe here for the reason it is not safe in general: ``v @ v`` overflows for
+    magnitudes above about 1e154, and this simulation works in metres and metres
+    per second over a flat earth.
+    """
+    return math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
 
 
 @dataclass(frozen=True)
@@ -53,7 +75,7 @@ class EntityState:
     @property
     def speed(self) -> float:
         """Magnitude of the velocity, in m/s."""
-        return float(np.linalg.norm(self.vel))
+        return magnitude(self.vel)
 
     @property
     def altitude(self) -> float:

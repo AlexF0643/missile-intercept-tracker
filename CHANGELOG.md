@@ -8,6 +8,50 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **A Monte Carlo over two kinds of uncertainty, because sampling only one of
+  them is misleading.** `interceptor monte-carlo` and
+  `examples/monte_carlo.py`. The conventional half flies many seeds at fixed
+  constants and reports a probability of kill with a Wilson interval — Wilson
+  rather than the normal approximation, which is exactly zero wide at 200 hits
+  from 200 and would have the study claiming certainty from a finite sample.
+  The other half draws the *constants* from declared ranges and reports the
+  spread of probabilities across them.
+
+  On a 6 g weave, 200 launches at the shipped constants:
+
+  | | probability of kill | median miss | worst |
+  |---|---|---|---|
+  | PN (N=3) | 0.000 [0.000, 0.019] | 6.90 m | 8.93 m |
+  | APN (N=3) | 0.970 [0.936, 0.986] | 1.42 m | 30.08 m |
+
+  Across 60 airframes drawn from the ranges in `uncertainty.py`:
+
+  | | probability of kill | |
+  |---|---|---|
+  | PN (N=3) | 0.00 to 1.00, mean 0.47 | 29 never hit, 23 always |
+  | APN (N=3) | 0.00 to 1.00, mean 0.27 | 38 never hit, 9 always |
+
+  **The seeker's noise decides almost nothing.** 87% of PN's draws and 80% of
+  APN's are all-or-nothing — every launch hits or none does — which ten seeds
+  can only produce if the underlying probability is already pinned near 0 or 1.
+  The airframe decides; the noise settles the margin. **And the ordering of the
+  two laws reverses**: APN looks decisively better on the shipped constants and
+  is worse on average across plausible ones, which puts the previous entry's
+  finding in its proper frame.
+- **Every constant now says where it came from.** `interceptor/uncertainty.py`
+  classifies all 28 as `defined`, `derived`, `design` or `chosen`, with a
+  sentence each. The thirteen `chosen` ones — the guesses — carry a range within
+  which the truth plausibly lies, and those are what the Monte Carlo samples. No
+  entry claims a citation, because none was consulted; where a real programme
+  would open a wind-tunnel database this says so and gives a range instead.
+  Tested against the browser form, so a setting a person can drag a slider on
+  cannot exist without an account of where its default came from.
+- A sensitivity pass, reported as a hint rather than a ranking: rank correlation
+  between each drawn constant and that draw's probability of kill. Nothing in
+  the seeker leads, and top of the list at +0.46 is `max_lift_coefficient` — the
+  same constant behind the augmented-pronav misdiagnosis above, found again by a
+  method with no connection to that investigation.
+- `Study.save`/`load`, because flying is half an hour and drawing is a second.
 - **`interceptor serve` — the whole simulation in one browser window.** The 3D
   view on the left, every parameter on the right, re-flown without touching a
   file. `http.server` and a hand-rolled canvas projection: no web framework, no
@@ -127,6 +171,19 @@ All notable changes to this project are documented here. The format follows
   arrives too slow to correct. Not a regression: the model becoming honest, and
   exactly the gap augmented proportional navigation is meant to close using the
   target acceleration the EKF already estimates.
+- **An engagement is 1.85x faster, with the same answers.** A Monte Carlo is a
+  few thousand runs, so the two places the profiler pointed at were finally
+  worth fixing. The EKF's measurement Jacobian was central differences — 18
+  evaluations per cycle, 40% of a flight — and is now the analytic partials of
+  range, azimuth, elevation and range-rate. The original argument against
+  hand-derived partials still stands (a dropped sign is invisible to review and
+  produces a filter that diverges slowly enough to look like a tuning problem),
+  so the numerical version stays as the *oracle*: a test compares the two over
+  400 random geometries. And `np.cross` and `np.linalg.norm`, called 57,000 and
+  273,000 times per engagement, are replaced by three-vector versions written
+  out — both tested against the library functions they replace, because
+  agreeing with the reference is their entire specification. 3.34 s to 1.80 s,
+  and trials then divide across cores through a stdlib process pool.
 - `config.bundled_text` returns a shipped scenario's raw TOML, comments and all.
   Both `interceptor show --raw` and the browser app's editor now start there
   rather than reaching into the package's resources themselves.

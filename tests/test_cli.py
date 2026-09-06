@@ -179,3 +179,32 @@ def test_no_command_is_a_usage_error() -> None:
     with pytest.raises(SystemExit) as exit_info:
         main([])
     assert exit_info.value.code == 2
+
+
+# --------------------------------------------------------------------------
+# monte-carlo
+# --------------------------------------------------------------------------
+def test_monte_carlo_reports_both_kinds_of_uncertainty(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Tiny, because the machinery is tested in test_montecarlo.py.
+
+    What this checks is the thing only the command can get wrong: that it prints
+    both answers rather than the flattering one. A study that reported only the
+    interval from the noise would look more confident and say less.
+    """
+    assert main(["monte-carlo", "head-on", "--draws", "2", "--seeds", "2", "--workers", "1"]) == 0
+    out = capsys.readouterr().out
+    assert "With the constants this project ships" in out
+    assert "Across constants that are equally plausible" in out
+    assert "probability of kill" in out
+
+
+def test_monte_carlo_with_one_draw_says_what_it_is_leaving_out(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--draws 1` is the conventional study, and it should admit as much."""
+    assert main(["monte-carlo", "head-on", "--draws", "1", "--seeds", "2", "--workers", "1"]) == 0
+    out = capsys.readouterr().out
+    assert "noise only" in out
+    assert "Across constants" not in out

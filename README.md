@@ -9,13 +9,15 @@ manoeuvring target a hundred times a second, a filter turns those measurements
 into a track, and a proportional-navigation law turns that track into steering
 commands — rendered live in 3D.
 
-> **Status: Phase 7, parts one and three.** Engagements can be watched rather than only
+> **Status: complete, through Phase 7.** Engagements can be watched rather than only
 > plotted; turning now costs energy, so the missile can no longer manoeuvre for
 > free; and the guidance law can now use the target acceleration the filter
 > estimates — which recovers the manoeuvring cases that cost broke. And it all
 > now runs in a browser window where any parameter can be changed and re-flown,
 > which is how the augmented law's failures turned out to have a different cause
-> than the obvious one. Monte Carlo next.
+> than the obvious one. The last phase puts a distribution around the results
+> and a range around the constants they rest on — and finds that the second is
+> much the larger of the two.
 
 ![A 7 g break turn intercepted, rendered in 3D](docs/assets/flight.gif)
 
@@ -255,6 +257,98 @@ interceptor run augmented                 # the break turn, with APN
 python examples/augmented_pronav.py       # the figure above (~6 min)
 ```
 
+## How much of this is actually known
+
+![Probability of kill, and how much of it rests on guesses](docs/assets/monte-carlo.png)
+
+Every result above is a median over a handful of seeds. The last phase replaces
+that with a distribution — and then asks a second question that changes the
+answer completely.
+
+**What a Monte Carlo normally reports.** Two hundred launches at the constants
+this project ships with, against a 6 g weave through a real seeker:
+
+```
+                 probability of kill        median miss    worst
+  PN  (N=3)      0.000  [0.000, 0.019]         6.90 m     8.93 m
+  APN (N=3)      0.970  [0.936, 0.986]         1.42 m    30.08 m
+```
+
+Confident, tight, and exactly the sort of number that gets quoted. Plain
+proportional navigation never hits this target; the augmented law almost always
+does.
+
+**What the model can actually support.** Every physical constant here was chosen
+because it seemed plausible. [`uncertainty.py`](src/interceptor/uncertainty.py)
+now says so for each one — classifying it as *defined*, *derived*, *design* or
+*chosen*, and giving the thirteen `chosen` ones a range within which the truth
+plausibly lies. Draw a set of constants from those ranges and you have one
+candidate for what this missile actually is. Sixty candidates, ten launches
+each:
+
+```
+                 probability of kill across 60 plausible airframes
+  PN  (N=3)      0.00 to 1.00      mean 0.47    29 never hit, 23 always
+  APN (N=3)      0.00 to 1.00      mean 0.27    38 never hit,  9 always
+```
+
+Three things fall out of that, and the third is the one worth the whole phase.
+
+**The seeker's noise decides almost nothing.** 87% of PN's draws and 80% of
+APN's are all-or-nothing: every launch hits, or none does. Ten seeds can only
+produce that if the underlying probability is already pinned near 0 or 1. For a
+given airframe the missile either has the energy and the lift to catch a weaving
+target or it does not, and the noise merely settles the marginal cases. The
+uncertainty everyone models is the smaller one here by a wide margin.
+
+**The confident answer is confidently wrong.** The interval `[0.000, 0.019]` is
+a true statement about a missile whose drag coefficient is exactly 0.30. It is
+not a statement about *this* missile, because nobody knows that number. Against
+the range of airframes actually consistent with what this project knows, PN
+hits in 47% of them.
+
+**And the ordering of the two laws reverses.** With the shipped constants APN
+looks decisively better — 0.97 against 0.00. Averaged over plausible constants
+it is *worse*: mean 0.27 against PN's 0.47. Both claims are honest about the
+model they were computed from. Only the second is honest about the model's
+foundations, and the [APN section above](#a-law-that-knows-the-target-is-turning)
+should be read in that light: a law that needs lift margin looks excellent on an
+airframe generous enough to give it, and this airframe's generosity is a guess.
+
+**Which guess?** Rank correlation between each drawn constant and that draw's
+probability of kill, for APN:
+
+```
+  +0.46  missile.aero.max_lift_coefficient
+  -0.36  missile.aero.drag_coefficient
+  -0.28  seeker.range_sigma
+  -0.18  missile.aero.peak_lift_angle_deg
+  +0.15  missile.motor.specific_impulse
+  -0.13  seeker.detection_range
+```
+
+Thirteen constants vary at once and sixty draws is a small sample, so read this
+as a hint rather than a ranking — separating them properly means varying one at
+a time, which is a different and much longer study. What it does say is that
+nothing in the *seeker* leads, and that the constant at the top is
+`max_lift_coefficient` — the same number that produced [the wrong
+diagnosis](#a-law-that-knows-the-target-is-turning) of APN's barrel-roll
+failure. A method that had nothing to do with that investigation put the same
+constant first.
+
+```bash
+interceptor monte-carlo crossing --draws 20 --seeds 50
+python examples/monte_carlo.py      # the figure above (~40 min, then cached)
+```
+
+None of this needed a faster simulation to be *possible*, but it needed one to
+be affordable: an analytic measurement Jacobian for the EKF and two three-vector
+primitives written out instead of called through numpy's general ones took a
+run from 3.34 s to 1.80 s, and the trials then divide across cores. Both
+replacements are tested against the implementations they replaced, over
+hundreds of random inputs, because "faster and subtly different" is the failure
+mode that matters.
+
 ## One window, every parameter
 
 ```bash
@@ -300,6 +394,7 @@ interceptor list                              # what ships with the package
 interceptor show crossing                     # describe one without flying it
 interceptor run crossing --seed 3             # fly it
 interceptor sweep crossing --seeds 20         # fly it 20 times, report the spread
+interceptor monte-carlo crossing              # ...and again over the uncited constants
 interceptor run crossing --figure out.png     # five-panel diagnostic
 interceptor record crossing -o flight.gif     # 3D animation
 interceptor view crossing                     # live, orbitable 3D window
@@ -374,6 +469,7 @@ setting does nothing.
 ## Diagnostic figures
 
 ```bash
+python examples/monte_carlo.py            # probability of kill, honestly (~40 min)
 python examples/estimator_comparison.py   # miss distance by estimator (~7 min)
 python examples/augmented_pronav.py       # PN against APN, five behaviours (~6 min)
 python examples/seeker_sweep.py           # miss distance against seeker noise
@@ -435,7 +531,7 @@ it.
 | 6 | Real-time 3D viewer | A recording good enough to head this README | ✅ above |
 | 7a | Augmented PN | Recover the manoeuvring cases induced drag broke | ✅ 0/6 → 6/6 on the weave |
 | 7c | Browser app | Change any parameter and re-fly without leaving the window | ✅ `interceptor serve` |
-| 7b | Monte Carlo | Miss distribution over 1000 runs | ⬜ |
+| 7b | Monte Carlo | Miss distribution over 1000 runs | ✅ 1600, over noise *and* over the constants |
 
 Two criteria were rewritten rather than quietly restated, and both are worth the
 paragraph.
@@ -494,6 +590,32 @@ Stated up front, because the boundary of a model is part of the model:
   until recently, changed a great deal.
 - The seeker is modelled at the measurement level — true geometry corrupted by
   noise, latency and dropouts — not at the level of transmitted waveforms.
+
+### The constants
+
+**Not one number in this model is cited.** Every constant is classified in
+[`uncertainty.py`](src/interceptor/uncertainty.py), one per entry, with an
+account of where it came from:
+
+| | |
+|---|---|
+| `defined` | Fixed by convention — standard gravity, ISA sea-level density. |
+| `derived` | Follows from other declared quantities — the induced-drag factor is peak lift over the angle it needs, and cannot be varied on its own. |
+| `design` | Choices that define *this notional missile*: its mass, its motor, its structural limit. A different value describes a different weapon, not a better guess at this one. |
+| `chosen` | Picked because it looked plausible. Thirteen of them, each with a range within which the truth plausibly lies. |
+
+The last group is the honest part, and the
+[Monte Carlo](#how-much-of-this-is-actually-known) samples it. Where a real
+programme would open a wind-tunnel database or a radar link budget, this project
+says "chosen" and gives a range. That is less satisfying than a reference and
+much better than a reference nobody read.
+
+The ranges are judgement rather than data, and the sampling is log-uniform
+across each — the flattest way of saying "anywhere in here, and we do not know
+where". Constants are drawn independently, which is a simplification worth
+naming: `max_lift_coefficient` and `peak_lift_angle_deg` describe the same lift
+curve and a real airframe would not vary them separately. Modelling that
+correlation would need a source for it.
 
 ## References
 

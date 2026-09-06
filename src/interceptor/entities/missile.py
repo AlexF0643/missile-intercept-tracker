@@ -10,7 +10,7 @@ from interceptor.airframe.aero import Aerodynamics
 from interceptor.airframe.autopilot import Autopilot, clamp_magnitude
 from interceptor.airframe.propulsion import Motor
 from interceptor.core.frames import unit
-from interceptor.core.state import EntityState, Vector
+from interceptor.core.state import EntityState, Vector, magnitude
 from interceptor.core.world import Entity, air_density
 from interceptor.guidance.base import GuidanceLaw
 from interceptor.sensing.track import Track, TrackSource
@@ -100,7 +100,7 @@ class Missile(Entity):
                 state.vel,
                 state.mass,
                 density,
-                lateral_acceleration=float(np.linalg.norm(lateral)),
+                lateral_acceleration=magnitude(lateral),
             )
 
         thrust = self.motor.thrust(t - self.launch_time)

@@ -37,7 +37,7 @@ from typing import Final
 import numpy as np
 
 from interceptor.core.frames import az_el_from_frd, body_axes, world_to_body
-from interceptor.core.state import EntityState, Vector
+from interceptor.core.state import EntityState, Vector, magnitude
 from interceptor.sensing.seeker import Measurement, SeekerConfig, relative_position_from
 
 __all__ = [
@@ -254,7 +254,7 @@ class ExtendedKalman(Estimator):
         relative = x[0:3] - missile.pos
         relative_velocity = x[3:6] - missile.vel
 
-        distance = float(np.linalg.norm(relative))
+        distance = magnitude(relative)
         if distance < _EPS:
             return np.zeros(4, dtype=np.float64)
 
@@ -263,16 +263,23 @@ class ExtendedKalman(Estimator):
         range_rate = float(np.dot(relative, relative_velocity)) / distance
         return np.array([distance, azimuth, elevation, range_rate], dtype=np.float64)
 
-    def _jacobian(self, missile: EntityState) -> Vector:
-        """Linearise the measurement model about the current state.
+    def _jacobian_numeric(self, missile: EntityState) -> Vector:
+        """Linearise the measurement model by central differences.
 
-        By central differences rather than hand-derived partials. The analytical
-        Jacobian of range, two body-frame angles and range-rate with respect to
-        nine states is a page of algebra with a dozen chances to drop a sign,
-        and a sign error there produces a filter that diverges slowly enough to
-        look like a tuning problem. Nine states at four measurements is 18
-        evaluations of a twenty-flop function per cycle — the cost is nothing,
-        and the result cannot be wrong in a way that a review would miss.
+        This was the only implementation for five phases, and the argument for
+        it was sound at the time: the analytical Jacobian of range, two
+        body-frame angles and range-rate with respect to nine states is a page
+        of algebra with a dozen chances to drop a sign, and a sign error there
+        produces a filter that diverges slowly enough to look like a tuning
+        problem. Eighteen evaluations of a twenty-flop function per cycle cost
+        nothing when a study is six runs.
+
+        A Monte Carlo is not six runs, and profiling put this at forty per cent
+        of an engagement. So :meth:`_jacobian` now does the algebra — and this
+        stays, as the thing that algebra is checked against. The concern was
+        never that hand-derived partials are slow; it was that a sign error in
+        them is invisible. A test that compares the two over hundreds of random
+        states answers that better than a careful read ever would.
         """
         assert self._x is not None
         H = np.zeros((4, 9), dtype=np.float64)
@@ -286,6 +293,78 @@ class ExtendedKalman(Estimator):
             H[:, i] = (
                 self._measurement(forward, missile) - self._measurement(backward, missile)
             ) / (2.0 * step)
+        return H
+
+    def _jacobian(self, missile: EntityState) -> Vector:
+        """Linearise the measurement model, analytically.
+
+        With ``dp = p_target - p_missile``, ``dv`` likewise, ``r = |dp|``,
+        ``u = dp / r`` and ``b = M dp`` the sightline in the body frame (``M``
+        being the body axes, which depend on the *missile's* velocity and so are
+        constant with respect to the state being estimated):
+
+        * ``d(range)/d(p) = u``, and range does not depend on velocity at all.
+        * ``azimuth = atan2(b1, b0)``, so ``d(az)/db = [-b1, b0, 0] / (b0^2 +
+          b1^2)`` and the chain rule through ``b = M dp`` is a multiplication by
+          ``M``.
+        * ``elevation = asin(-b2 / r)``, giving ``d(el)/db = [b2 b0, b2 b1,
+          b2^2 - r^2] / r^3`` scaled by ``1 / sqrt(1 - sin^2)``.
+        * ``range_rate = (dp . dv) / r``, so ``d/d(p) = (dv - range_rate u) / r``
+          and ``d/d(v) = u``.
+
+        Nothing depends on the target's acceleration — the seeker measures where
+        the target *is* and how fast the range is changing, not how it is
+        turning. That column of zeros is exactly why the filter needs a motion
+        model to estimate acceleration at all, and why APN depends on the model
+        being right rather than on the measurement being good.
+
+        Guarded twice. A target directly above or below the nose makes azimuth
+        undefined, and one exactly on the boresight makes elevation's derivative
+        infinite. Both are far outside a 40-degree gimbal limit in any real
+        engagement, but a filter can pass through anything while it is still
+        converging, and a NaN in the Jacobian poisons the covariance for good.
+        """
+        assert self._x is not None
+        H = np.zeros((4, 9), dtype=np.float64)
+
+        relative = self._x[0:3] - missile.pos
+        relative_velocity = self._x[3:6] - missile.vel
+        distance = magnitude(relative)
+        if distance < _EPS:
+            return H
+
+        axes = body_axes(missile.vel)
+        body = axes @ relative
+        unit_sightline = relative / distance
+
+        # Range.
+        H[0, 0:3] = unit_sightline
+
+        # Azimuth, in the horizontal plane of the body frame.
+        horizontal = float(body[0] ** 2 + body[1] ** 2)
+        if horizontal > _EPS:
+            H[1, 0:3] = np.array([-body[1], body[0], 0.0]) @ axes / horizontal
+
+        # Elevation.
+        sine = float(np.clip(-body[2] / distance, -1.0, 1.0))
+        cosine = float(np.sqrt(max(1.0 - sine * sine, _EPS)))
+        d_sine = (
+            np.array(
+                [
+                    body[2] * body[0],
+                    body[2] * body[1],
+                    body[2] * body[2] - distance * distance,
+                ]
+            )
+            / distance**3
+        )
+        H[2, 0:3] = (d_sine @ axes) / cosine
+
+        # Range rate.
+        range_rate = float(np.dot(relative, relative_velocity)) / distance
+        H[3, 0:3] = (relative_velocity - range_rate * unit_sightline) / distance
+        H[3, 3:6] = unit_sightline
+
         return H
 
     def _measurement_noise(self, distance: float) -> Vector:
