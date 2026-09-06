@@ -1,0 +1,79 @@
+<!doctype html>
+<!--
+  One window: the engagement on the left, every parameter on the right.
+
+  The controls are not written out here — they are generated from the field
+  table the server sends, so that adding a setting to the simulation cannot
+  leave the form silently out of date. What is here is the furniture.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Missile intercept tracker</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Missile intercept tracker</h1>
+      <span id="subtitle"></span>
+      <span id="status">starting…</span>
+    </header>
+
+    <main>
+      <section id="stage">
+        <canvas id="view"></canvas>
+
+        <div id="readout" aria-live="off"></div>
+        <div id="legend">
+          <div class="m"><b>——</b> missile</div>
+          <div class="t"><b>——</b> target</div>
+          <div>drag to orbit · scroll to zoom</div>
+        </div>
+
+        <div id="toml-pane">
+          <p id="toml-note">
+            The scenario as the server will read it. Edit it here and press Fly
+            to use exactly this; touch a control on the right and it is rebuilt
+            from the form.
+          </p>
+          <textarea id="toml" spellcheck="false" aria-label="Scenario TOML"></textarea>
+        </div>
+
+        <div id="transport">
+          <button id="play" type="button">Play</button>
+          <span id="clock">0.00 / 0.00 s</span>
+          <input id="scrub" type="range" min="0" max="0" value="0" step="1" aria-label="Time" />
+          <label for="rate" class="value">rate</label>
+          <select id="rate" style="width: auto">
+            <option value="0.25">0.25×</option>
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="2">2×</option>
+            <option value="4">4×</option>
+          </select>
+          <button id="toggle-toml" type="button">TOML</button>
+        </div>
+      </section>
+
+      <aside>
+        <div id="top">
+          <select id="scenario" aria-label="Scenario"></select>
+          <p id="scenario-help"></p>
+        </div>
+
+        <div id="controls"></div>
+
+        <div id="error" role="alert"></div>
+
+        <div id="actions">
+          <label class="value" for="seed">seed</label>
+          <input class="seed" id="seed" type="number" min="0" max="999999" value="0" />
+          <button id="fly" class="primary" type="button">Fly</button>
+        </div>
+      </aside>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

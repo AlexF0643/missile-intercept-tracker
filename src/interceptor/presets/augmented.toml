@@ -10,9 +10,17 @@
 #
 #   [target.manoeuvre] kind = "barrel_roll", amplitude_g = 5.0, period = 4.0
 #
-# That rotates a constant-magnitude pull instead of holding a constant one. The
-# assumption fails, apn's lead never decays, and the miss goes from 30.68 m to
-# 469.36 m — worse than the law it augments, on the same track.
+# The miss goes from 30.68 m to 469.36 m — worse than the law it augments. The
+# tempting explanation is that a barrel roll rotates a constant-magnitude pull
+# and so breaks apn's constant-acceleration assumption. It does break it, and
+# that is not why it misses. Change a second line:
+#
+#   [missile.aero] max_lift_coefficient = 5.0
+#
+# and the same barrel roll is intercepted at 0.02 m, a hundred and fifty times
+# better than pronav. apn's lead is a request for about half as much lateral
+# acceleration again; where the airframe can meet it, it is worth a great deal,
+# and where it saturates the missile pays induced drag for lift it never gets.
 
 name = "augmented"
 description = "Augmented pronav against the sustained break turn it was derived for"

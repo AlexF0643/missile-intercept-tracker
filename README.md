@@ -9,11 +9,13 @@ manoeuvring target a hundred times a second, a filter turns those measurements
 into a track, and a proportional-navigation law turns that track into steering
 commands — rendered live in 3D.
 
-> **Status: Phase 7, part one.** Engagements can be watched rather than only
+> **Status: Phase 7, parts one and three.** Engagements can be watched rather than only
 > plotted; turning now costs energy, so the missile can no longer manoeuvre for
 > free; and the guidance law can now use the target acceleration the filter
-> estimates — which recovers the manoeuvring cases that cost broke, and fails
-> instructively where its assumption does not hold. Monte Carlo next.
+> estimates — which recovers the manoeuvring cases that cost broke. And it all
+> now runs in a browser window where any parameter can be changed and re-flown,
+> which is how the augmented law's failures turned out to have a different cause
+> than the obvious one. Monte Carlo next.
 
 ![A 7 g break turn intercepted, rendered in 3D](docs/assets/flight.gif)
 
@@ -173,8 +175,9 @@ a = N·V_c·(Ω × r̂)  +  (N/2)·a_t⊥
 
 `N/2` is not a tuning knob. It is the optimal-control solution for a target
 holding **constant** acceleration, derived under the same criterion that gives
-`N = 3` against one holding none. Those two words are the whole story, and the
-result splits cleanly along them:
+`N = 3` against one holding none — so the obvious question is what happens when
+the target does not oblige. That turns out not to be the question that matters,
+but the results are what led to the one that does:
 
 ```
 crossing geometry, seeker + EKF, 6 seeds     PN (N=3)          APN (N=3)
@@ -195,43 +198,97 @@ three to six times in miss distance — and, more to the point, the difference
 between a round that arrives inside its lethal radius and one that does not.
 
 The bottom two rows are the more useful half. **A barrel roll makes APN twelve
-times worse than the law it augments** — and it does so on a *perfect* track,
-which is what makes the diagnosis unambiguous. This is not the filter estimating
-acceleration badly. A barrel roll holds acceleration *magnitude* constant while
-rotating its *direction*, so APN's lead never decays: the missile carries a
-standing 7.5 g command that points somewhere different every second. It commands
-less peak acceleration than PN does (13 g against 246 g) and yet uses more on
-average, pays induced drag for every bit of it, and arrives at 265 m/s where PN
-arrives at 407 — with no energy left to correct anything. A lead term that is
-wrong in a way that *costs* is worse than no lead term at all.
+times worse than the law it augments**, and it does so on a *perfect* track,
+which at least rules the filter out: this is not a bad acceleration estimate.
 
-The jink fails for a different reason, and the difference is the point. On a
-perfect track APN handles it well — 1.52 m against PN's 11.11 m — because inside
-each 1.5 s segment the acceleration really is constant. It is only through the
-seeker that it loses. The obvious explanation is that the filter is slow to
-notice each new break, and that explanation is wrong: measured, the EKF picks up
-a direction change in about 20 ms, a fiftieth of a segment. What actually
-happens is that **its acceleration estimate is wrong by more than the signal**.
-Over the last two seconds of flight the EKF's acceleration error runs at a
-median 12.0 g against a target pulling 7.0 g, and APN multiplies that error by
-`N/2` before adding it to the command — some 18 g of noise steered straight into
-the airframe. On the weave the same filter is wrong by 1.8 g and the same term
-is worth a factor of six.
+The obvious reading is that APN's assumption has broken — a barrel roll holds
+acceleration *magnitude* constant while rotating its *direction*, so the lead
+never decays. That reading is wrong, and finding out how wrong is the most
+useful thing in this section. Vary one number, the missile's maximum lift
+coefficient, and hold everything else fixed:
 
-So the two failures want different answers. The jink is the *estimate*, and a
-manoeuvre-detecting estimator would help; augmentation is never better than the
-acceleration estimate behind it, and that is the hardest quantity in the whole
-sensing chain to measure — the second derivative of a noisy position. The barrel
-roll is the *premise*, and no estimator can help at all.
+```
+Cl_max              PN                              APN
+ 2.5     24.44 m,  18% saturated      310.98 m,  40% saturated, arrives 265 m/s
+ 3.0     13.90 m,  14%                 88.17 m,  32%
+ 3.5      8.61 m,  12%                  7.53 m,  20%
+ 4.0      5.84 m,  10%                  0.51 m,  10%
+ 5.0      3.31 m,   7%                  0.02 m,   9%, arrives 420 m/s
+```
 
-Both are asserted in the tests rather than fixed. A law that helps enormously
-where its assumption holds and hurts badly where it does not is a more useful
-thing to know about than one silently switched for whichever wins.
+Give the airframe twice the lift and APN goes from twelve times worse than PN to
+a hundred and fifty times better — against the very manoeuvre that was supposed
+to defeat it. **The lead term is not defeated by the barrel roll. It is defeated
+by an airframe that cannot deliver what it asks for.** APN commands roughly half
+as much again as PN, and where that request can be met it is worth a large
+factor; where it saturates, the surplus is never produced, but the lift that
+*is* produced still costs induced drag, so the missile pays for the whole
+command and receives part of it. It arrives at 265 m/s instead of 420 with
+nothing left to correct with.
+
+That single mechanism covers the rest. A weave banked 60° out of the horizontal
+misses by 306 m with APN and 21 m with PN — the acceleration reverses just as it
+does in the flat weave APN wins, but the missile is already spending lift on
+staying up, so the same extra demand saturates. Raise the lift coefficient and
+that case collapses to 0.41 m too. The jink is the one place where the filter
+really is the problem: on a perfect track APN handles it well (1.52 m against
+11.11 m) and only loses through the seeker, because the EKF's acceleration error
+over the last two seconds runs at a median 12.0 g against a target pulling 7.0,
+and APN multiplies that by `N/2` on its way into the command — about 18 g of
+noise. On the weave the same filter is wrong by 1.8 g and the same term is worth
+a factor of six.
+
+So: **augmentation is a request for lift, and it is only free when there is lift
+to spare.** Which makes it uncomfortable that the number deciding all of this,
+`max_lift_coefficient = 2.5`, is one of the constants this project
+[cannot cite](#modelling-assumptions). An uncited value is currently the
+difference between a law that is excellent and one that is catastrophic, which
+is a better argument for sourcing the constants than any amount of tidiness.
+
+This is left as it is and asserted in the tests rather than tuned away. A law
+whose benefit depends on a margin the airframe may or may not have is a more
+useful thing to understand than one silently switched for whichever currently
+wins.
 
 ```bash
 interceptor run augmented                 # the break turn, with APN
 python examples/augmented_pronav.py       # the figure above (~6 min)
 ```
+
+## One window, every parameter
+
+```bash
+interceptor serve      # opens a browser; Ctrl-C to stop
+```
+
+![The browser app: a 3D view on the left, every parameter on the right](docs/assets/browser-app.png)
+
+The engagement on the left, the whole scenario on the right. Change the target's
+speed and heading, give it a barrel roll, switch the guidance law, turn the
+seeker off, drag the sliders — and fly it again without touching a file. The
+transport under the view scrubs through the flight; the readout is the same six
+numbers the 3D viewer shows, and the line-of-sight rate is the one to watch as
+the range collapses.
+
+Three things about how it is built, because each was a decision rather than a
+default:
+
+- **It is the standard library.** `http.server`, no framework; a canvas and a
+  hand-rolled perspective projection, no three.js and no CDN. The app works with
+  no network at all, and the package still installs with nothing but numpy.
+- **The browser never decides what a valid scenario is.** The form builds TOML —
+  the same text `interceptor show --raw` prints, visible and editable in the
+  TOML pane — and posts it to the same reader a file goes through. Every bound,
+  every default and every *did you mean `glint_sigma`?* is the one the command
+  line already uses, so the two cannot drift apart.
+- **The form is generated from a table**, not written out by hand, and two tests
+  hold that table to the validator: every combination of manoeuvre, law and
+  estimator must resolve, and every default must equal what *leaving the key
+  out* would mean. The second caught two controls that quietly disagreed with
+  the file semantics.
+
+It earned its keep immediately: changing one parameter and watching the result
+is how the APN diagnosis above turned out to be wrong.
 
 ## Run one without writing any Python
 
@@ -246,6 +303,7 @@ interceptor sweep crossing --seeds 20         # fly it 20 times, report the spre
 interceptor run crossing --figure out.png     # five-panel diagnostic
 interceptor record crossing -o flight.gif     # 3D animation
 interceptor view crossing                     # live, orbitable 3D window
+interceptor serve                             # all of it, in one browser window
 ```
 
 The viewer comes in two halves for a reason. `record` writes a file with
@@ -376,6 +434,7 @@ it.
 | 5 | Estimation: alpha-beta, then EKF | Inside the 5 m lethal radius on a realistic seeker; survives a 0.5 s dropout | ✅ 1644 m → 1.05 m |
 | 6 | Real-time 3D viewer | A recording good enough to head this README | ✅ above |
 | 7a | Augmented PN | Recover the manoeuvring cases induced drag broke | ✅ 0/6 → 6/6 on the weave |
+| 7c | Browser app | Change any parameter and re-fly without leaving the window | ✅ `interceptor serve` |
 | 7b | Monte Carlo | Miss distribution over 1000 runs | ⬜ |
 
 Two criteria were rewritten rather than quietly restated, and both are worth the

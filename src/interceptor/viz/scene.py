@@ -47,6 +47,12 @@ class Frame:
     """
 
     time: float
+    #: Index of the recorded sample this frame was drawn from. The trails are
+    #: ``positions[: sample + 1]``, so a renderer that would rather hold the two
+    #: trajectories once and index into them — the browser does, since sending a
+    #: cumulative trail per frame over the wire is quadratic — can, without
+    #: inferring the index back out of an array length.
+    sample: int
     missile_position: Vector
     target_position: Vector
     missile_trail: Vector
@@ -187,6 +193,7 @@ def storyboard_from(
     frames = [
         Frame(
             time=float(times[i]),
+            sample=int(i),
             missile_position=missile_position[i],
             target_position=target_position[i],
             missile_trail=missile_position[: i + 1],

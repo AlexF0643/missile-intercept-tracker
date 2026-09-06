@@ -66,6 +66,7 @@ __all__ = [
     "ConfigError",
     "EngagementSpec",
     "bundled_names",
+    "bundled_text",
     "load",
     "load_bundled",
     "loads",
@@ -401,6 +402,23 @@ class EngagementSpec:
             seed=seed,
         )
 
+    def describe(self) -> str:
+        """One line naming the law, the seeker and the estimator.
+
+        Lives here rather than in whatever is displaying it, because there are
+        now three things that display it — the command line, the 3D viewer's
+        subtitle and the browser app — and somebody who runs the same scenario
+        two ways should not have to work out whether two differently worded
+        descriptions mean the same configuration.
+        """
+        law = "unguided" if self.law is None else self.law.name
+        if self.seeker is None:
+            # An estimator behind a perfect track has nothing to estimate, and
+            # `Scenario.build` ignores it. Naming it would imply it was running.
+            return f"{law}, perfect information"
+        estimator = "no estimator" if self.estimator is None else self.estimator().name
+        return f"{law}, seeker {self.seeker.angle_sigma * 1e3:g} mrad, {estimator}"
+
 
 def resolve(data: dict[str, Any], name: str = "scenario") -> EngagementSpec:
     """Turn already-parsed TOML into a specification."""
@@ -498,12 +516,25 @@ def bundled_names() -> list[str]:
     )
 
 
-def load_bundled(name: str) -> EngagementSpec:
-    """Read one of the scenarios that ships with the package."""
+def bundled_text(name: str) -> str:
+    """The raw TOML of a bundled scenario, comments and all.
+
+    The comments are most of the value — the shipped files explain what each
+    setting does and what happens when you change it — so anything that offers a
+    scenario for editing wants the text rather than the parsed result. Both
+    ``interceptor show --raw`` and the browser app's editor start here.
+
+    A name is resolved against the bundled list rather than used to build a
+    path, so this cannot be talked into reading anything else.
+    """
     available = bundled_names()
     if name not in available:
         close = difflib.get_close_matches(name, available, n=1, cutoff=0.5)
         hint = f" — did you mean {close[0]!r}?" if close else f" (available: {available})"
         raise ConfigError(f"no bundled scenario named {name!r}{hint}")
-    text = resources.files(BUNDLED).joinpath(f"{name}.toml").read_text(encoding="utf-8")
-    return loads(text, name)
+    return resources.files(BUNDLED).joinpath(f"{name}.toml").read_text(encoding="utf-8")
+
+
+def load_bundled(name: str) -> EngagementSpec:
+    """Read one of the scenarios that ships with the package."""
+    return loads(bundled_text(name), name)

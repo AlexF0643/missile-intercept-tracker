@@ -125,25 +125,41 @@ class AugmentedProportionalNavigation(ProportionalNavigation):
     **Where it wins, measured.** Through the seeker and the EKF, six seeds on the
     crossing engagement: the 6 g weave goes from 6.94 m and no hits at all to
     1.21 m and six from six; the 7 g break turn from 4.87 m and three from six to
-    1.62 m and six from six. Both targets hold their acceleration long enough for
-    the assumption to be true, and where it is true this term is worth roughly a
-    factor of five.
+    1.62 m and six from six.
 
-    **Where it loses, and why that is a property rather than a bug.** Against a
-    barrel roll it misses by 469 m where plain PN misses by 31 — and it does so
-    on a *perfect* track, which rules the filter out of the diagnosis. A barrel
-    roll holds its acceleration *magnitude* constant while rotating its
-    *direction*, so the lead never decays: the missile carries a standing 7.5 g
-    command pointing somewhere different every second. It commands less peak
-    acceleration than PN does (13 g against 246 g) and yet uses more on average,
-    pays induced drag for every bit of it, and arrives at 265 m/s where PN
-    arrives at 407, with nothing left to correct with. The assumption here is not
-    merely unhelpful, it is expensive.
+    **Where it loses, and what that actually is.** Against a barrel roll it
+    misses by 469 m where plain PN misses by 31, and it does so on a *perfect*
+    track, so the filter is not the explanation. Neither — and this took a second
+    look to establish — is the constant-acceleration assumption, even though a
+    barrel roll plainly violates it by rotating a constant-magnitude pull.
 
-    This is left as it is, and asserted in ``tests/test_apn.py`` rather than
-    fixed. Switching laws on whichever currently wins would hide the one thing
-    worth knowing about this one: exactly which assumption it rests on, and what
-    happens when the world declines to satisfy it.
+    The binding constraint is lift. Hold everything fixed and vary only
+    ``max_lift_coefficient`` on that same barrel roll, on truth::
+
+        Cl_max          PN                     APN
+         2.5     24.44 m, 18% saturated   310.98 m, 40% saturated, arrives 265 m/s
+         3.5      8.61 m, 12%               7.53 m, 20%
+         5.0      3.31 m,  7%               0.02 m,  9%, arrives 420 m/s
+
+    Twice the lift and APN is a hundred and fifty times *better* than PN against
+    the manoeuvre that supposedly defeats it. The lead term is a request for
+    additional lateral acceleration — about half as much again — and where the
+    airframe can meet it the term is worth a large factor. Where it saturates,
+    the surplus is never produced, but the lift that *is* produced still costs
+    induced drag, so the missile pays for the whole command and receives part of
+    it: it arrives at 265 m/s instead of 420, with nothing left to correct with.
+
+    The same mechanism, not a second one, explains a weave banked out of the
+    horizontal (306 m against PN's 21 m at ``Cl_max`` 2.5, and 0.41 m at 5.0):
+    the missile is already spending lift on holding itself up, so the same extra
+    demand saturates where the flat weave's did not.
+
+    So the honest statement is that augmentation is only free when the airframe
+    has margin — and the number that decides it here, ``max_lift_coefficient``,
+    is one of this project's uncited constants. It is left as it is, and asserted
+    in ``tests/test_apn.py`` rather than tuned away, because a law whose benefit
+    depends on a margin is a more useful thing to understand than one silently
+    switched for whichever currently wins.
 
     Degrades to plain PN when the track carries no acceleration — an alpha-beta
     filter reports zero, a bare seeker track reports ``None`` — and does so

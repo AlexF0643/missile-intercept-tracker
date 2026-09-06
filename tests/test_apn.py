@@ -6,9 +6,15 @@ APN adds a term for the target's own acceleration:
 
 The coefficient is not tuning — it is the optimal-control solution for a
 *constant-acceleration* target, under the same criterion that gives N = 3 for a
-non-manoeuvring one. Those three words carry the whole of this file. Where the
-assumption holds the term is transformative; where it does not, it is worse than
-nothing, and the tests below pin down both.
+non-manoeuvring one.
+
+The obvious thing to test is therefore what happens when the target's
+acceleration is not constant, and the first version of this file tested exactly
+that and drew the wrong conclusion from it. The lead term is a request for
+additional lift, and what decides whether it helps is not how well the target
+obliges the assumption but whether the airframe can meet the request. Both
+halves are pinned below, the correction included, because it is the more useful
+of the two.
 """
 
 from __future__ import annotations
@@ -16,6 +22,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from interceptor.config import loads
 from interceptor.core.state import EntityState
 from interceptor.entities.missile import Missile
 from interceptor.entities.target import (
@@ -193,23 +200,13 @@ def test_it_costs_nothing_against_a_target_that_does_not_manoeuvre() -> None:
 # Where it does not
 # --------------------------------------------------------------------------
 def test_a_rotating_acceleration_defeats_it_even_with_perfect_information() -> None:
-    """The boundary of the assumption, and the most useful thing in this file.
+    """The failure, on a perfect track, so the filter is not the explanation.
 
-    A barrel roll holds its acceleration *magnitude* constant while rotating its
-    *direction*. APN's lead therefore never decays — the missile carries a
-    sustained ``N/2 * 5 g`` command that points somewhere different every second,
-    pays induced drag for it the whole way down, and arrives about a third
-    slower with no margin left to correct.
-
-    It fails here with a perfect track, which is what makes the diagnosis
-    unambiguous: this is not the filter's acceleration estimate being poor. It
-    is APN's own premise — that the target keeps accelerating the way it is
-    accelerating now — being false in a way that costs energy rather than merely
-    failing to help.
-
-    Asserted rather than fixed. A guidance law that helps enormously where its
-    assumption holds and hurts badly where it does not is a more useful thing to
-    know about than one silently switched for whichever wins.
+    What that failure *is* took a second look, and the answer is not the one
+    this test was originally written to assert. See
+    :func:`test_the_barrel_roll_is_the_airframe_not_the_assumption` below, which
+    is the one that identifies the cause; this one only establishes that the
+    cause is somewhere other than the estimate.
     """
     plain = _fly(barrel_roll(5.0, 4.0), ProportionalNavigation(3.0))
     augmented = _fly(barrel_roll(5.0, 4.0), AugmentedProportionalNavigation(3.0))
@@ -282,8 +279,8 @@ def test_the_jink_failure_is_the_estimate_not_the_lag() -> None:
     factor of six there.
 
     This is the distinction that decides what to do next: a manoeuvre-detecting
-    estimator would help the jink and could do nothing whatever for the barrel
-    roll, which fails on a perfect track.
+    estimator would help the jink, and would do nothing whatever for the barrel
+    roll, which fails on a perfect track for a reason of its own.
     """
     jink_error, jink_signal = _terminal_acceleration_error(jink(7.0, 1.5))
     weave_error, weave_signal = _terminal_acceleration_error(weave(6.0, 4.0))
@@ -297,12 +294,96 @@ def test_the_jink_failure_is_the_estimate_not_the_lag() -> None:
     )
 
 
+def _fly_with_lift(kind: str, law: str, max_lift_coefficient: float) -> float | None:
+    """One engagement on truth, with a stated airframe. Miss distance in metres.
+
+    Built from TOML rather than the scenario helpers because the airframe is
+    what is being varied, and the config reader is the one place that knows how
+    to spell it.
+    """
+    text = f"""
+duration = 30.0
+[missile]
+position = [0.0, 0.0, 1000.0]
+speed = 60.0
+[missile.aero]
+max_lift_coefficient = {max_lift_coefficient}
+[target]
+position = [0.0, 6000.0, 1000.0]
+velocity = [250.0, 0.0, 0.0]
+[target.manoeuvre]
+{kind}
+[guidance]
+law = "{law}"
+[seeker]
+enabled = false
+"""
+    spec = loads(text, "airframe probe")
+    world, detector = spec.build(seed=0)
+    run(world, duration=spec.scenario.duration, dt=1e-3, stop=detector)
+    return None if detector.result is None else detector.result.miss_distance
+
+
+BARREL_ROLL = 'kind = "barrel_roll"\namplitude_g = 5.0\nperiod = 4.0'
+BANKED_WEAVE = 'kind = "weave"\namplitude_g = 6.0\nperiod = 4.0\nbank_deg = 60.0'
+
+
+@pytest.mark.parametrize(
+    ("name", "manoeuvre"), [("barrel roll", BARREL_ROLL), ("banked weave", BANKED_WEAVE)]
+)
+def test_the_barrel_roll_is_the_airframe_not_the_assumption(name: str, manoeuvre: str) -> None:
+    """The correction, and the most useful thing in this file.
+
+    APN losing to a barrel roll looks exactly like its constant-acceleration
+    premise failing, and that is what this file originally claimed. It is wrong.
+    Hold everything else fixed and give the airframe twice the lift coefficient,
+    and APN goes from twelve times worse than PN to a hundred times better —
+    against the identical manoeuvre, on the identical perfect track. The premise
+    is just as violated at ``Cl_max = 5`` as at 2.5.
+
+    What actually happens is that the lead term is a request for roughly half as
+    much lateral acceleration again. Where the airframe can meet it, it is worth
+    a large factor. Where it saturates, the surplus is never produced — but the
+    lift that *is* produced still costs induced drag, so the missile pays for
+    the whole command and receives part of it, and arrives too slow to correct.
+
+    A banked weave is the same story: the acceleration reverses exactly as it
+    does in the flat weave APN wins, but the missile is already spending lift on
+    holding itself up, so the same extra demand saturates.
+
+    This is why the test exists at all. The observation that APN misses is
+    cheap; knowing that a wind-tunnel number nobody has sourced is what decides
+    whether the law is excellent or catastrophic is not.
+    """
+    cramped_pn = _fly_with_lift(manoeuvre, "pronav", 2.5)
+    cramped_apn = _fly_with_lift(manoeuvre, "apn", 2.5)
+    roomy_pn = _fly_with_lift(manoeuvre, "pronav", 5.0)
+    roomy_apn = _fly_with_lift(manoeuvre, "apn", 5.0)
+    assert None not in (cramped_pn, cramped_apn, roomy_pn, roomy_apn)
+    assert cramped_pn is not None
+    assert cramped_apn is not None
+    assert roomy_pn is not None
+    assert roomy_apn is not None
+
+    assert cramped_apn > 5.0 * cramped_pn, (
+        f"{name}: APN should lose badly on the shipped airframe; "
+        f"PN {cramped_pn:.1f} m, APN {cramped_apn:.1f} m"
+    )
+    assert roomy_apn < roomy_pn, (
+        f"{name}: with lift to spare APN should win; PN {roomy_pn:.2f} m, APN {roomy_apn:.2f} m"
+    )
+    assert roomy_apn < cramped_apn / 100.0, (
+        f"{name}: the rescue should be dramatic, not marginal; "
+        f"{cramped_apn:.1f} m becomes {roomy_apn:.2f} m"
+    )
+
+
 def test_the_barrel_roll_failure_is_energy_not_aim() -> None:
     """Confirms the mechanism rather than merely the outcome.
 
     If APN were simply aiming wrong it would arrive at a similar speed and miss.
-    It arrives markedly slower, because a lead command that never decays is a
-    lift command that never decays, and lift costs drag.
+    It arrives markedly slower, because the lift it asks for and cannot fully
+    receive is paid for in induced drag regardless.
     """
     speeds = {}
     for label, law in (

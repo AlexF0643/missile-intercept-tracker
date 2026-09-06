@@ -35,10 +35,10 @@ position = [0.0, 6000.0, 1000.0]
 velocity = [250.0, 0.0, 0.0]
 
 [target.manoeuvre]
-kind = "straight"     # straight | weave | break_turn
+kind = "straight"     # straight | weave | break_turn | barrel_roll | jink
 
 [guidance]
-law = "pronav"        # pronav | pursuit | none
+law = "pronav"        # pronav | apn | pursuit | none
 navigation_constant = 3.0
 
 [seeker]

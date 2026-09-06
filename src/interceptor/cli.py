@@ -31,7 +31,14 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from interceptor.config import ConfigError, EngagementSpec, bundled_names, load, load_bundled
+from interceptor.config import (
+    ConfigError,
+    EngagementSpec,
+    bundled_names,
+    bundled_text,
+    load,
+    load_bundled,
+)
 from interceptor.sim.engagement import RunResult, run
 from interceptor.sim.intercept import Intercept
 
@@ -61,19 +68,9 @@ def _fly(spec: EngagementSpec, seed: int) -> tuple[RunResult, Intercept | None]:
 
 
 def _describe(spec: EngagementSpec) -> str:
-    # The law's own name rather than its class's. It carries the navigation
-    # constant, which the class name does not, and "ProNav (N=3)" against
-    # "APN (N=3)" is the distinction a reader of this line actually wants —
-    # where the class names differ only by a prefix.
-    law = "unguided" if spec.law is None else spec.law.name
-    if spec.seeker is None:
-        # An estimator behind a perfect track has nothing to estimate, and
-        # `Scenario.build` ignores it. Saying which one is configured would
-        # imply it was running.
-        return f"{law}, perfect information"
-    seeker = f"seeker {spec.seeker.angle_sigma * 1e3:g} mrad"
-    estimator = "no estimator" if spec.estimator is None else spec.estimator().name
-    return f"{law}, {seeker}, {estimator}"
+    # One sentence, defined on the spec, so the command line, the 3D viewer and
+    # the browser app cannot describe the same configuration differently.
+    return spec.describe()
 
 
 # --------------------------------------------------------------------------
@@ -91,17 +88,8 @@ def _command_list(args: argparse.Namespace) -> int:
 
 def _command_show(args: argparse.Namespace) -> int:
     if args.raw:
-        from importlib import resources
-
-        from interceptor.config import BUNDLED
-
         if args.scenario in bundled_names():
-            print(
-                resources.files(BUNDLED)
-                .joinpath(f"{args.scenario}.toml")
-                .read_text(encoding="utf-8"),
-                end="",
-            )
+            print(bundled_text(args.scenario), end="")
             return 0
         print(Path(args.scenario).read_text(encoding="utf-8"), end="")
         return 0
@@ -221,6 +209,23 @@ def _command_view(args: argparse.Namespace) -> int:
     return 0
 
 
+def _command_serve(args: argparse.Namespace) -> int:
+    """Open the whole thing in a browser window.
+
+    The one command that does not take a scenario: the point of it is that you
+    choose and change the scenario in the window, without coming back here.
+    """
+    from interceptor.web.app import serve
+
+    serve(
+        host=args.host,
+        port=args.port,
+        open_browser=args.open_browser,
+        verbose=args.verbose,
+    )
+    return 0
+
+
 def _command_sweep(args: argparse.Namespace) -> int:
     """Fly the same engagement under many seeds.
 
@@ -312,6 +317,24 @@ def _parser() -> argparse.ArgumentParser:
         "--no-slow-motion", dest="slow_motion", action="store_false", help="no endgame slow motion"
     )
     watch.set_defaults(handler=_command_view)
+
+    app = commands.add_parser(
+        "serve", help="open the whole simulation in a browser window: 3D view and every parameter"
+    )
+    app.add_argument("--port", type=int, default=8765, help="port to listen on (default: 8765)")
+    app.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="address to bind (default: 127.0.0.1, i.e. this machine only)",
+    )
+    app.add_argument(
+        "--no-browser",
+        dest="open_browser",
+        action="store_false",
+        help="do not open a browser; just print the address",
+    )
+    app.add_argument("--verbose", action="store_true", help="log every request")
+    app.set_defaults(handler=_command_serve)
 
     sweep = commands.add_parser("sweep", help="fly one engagement under many seeds")
     sweep.add_argument("scenario", help="bundled name or path to a .toml file")

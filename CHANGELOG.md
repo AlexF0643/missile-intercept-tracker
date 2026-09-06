@@ -8,6 +8,28 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **`interceptor serve` — the whole simulation in one browser window.** The 3D
+  view on the left, every parameter on the right, re-flown without touching a
+  file. `http.server` and a hand-rolled canvas projection: no web framework, no
+  three.js, no CDN, so it works with no network at all and the package still
+  installs with nothing but numpy. It is a third renderer over the same
+  `Storyboard` the GIF recorder and the VPython window consume, so the three
+  cannot disagree about where anything is.
+
+  The browser never decides what a valid scenario is. The form builds TOML — the
+  same text `interceptor show --raw` prints, shown and editable in a pane — and
+  posts it to `config.loads`, so every bound, default and *did you mean
+  'glint_sigma'?* is the one the command line already uses. The form itself is
+  generated from a table of dotted TOML paths (`web/fields.py`) rather than
+  written out, and two tests hold that table to the validator: all sixty
+  combinations of manoeuvre, law and estimator must resolve, and every default
+  must equal what *omitting* the key would mean. The second caught two form
+  defaults that silently disagreed with the file semantics.
+
+  Browser tests run under headless Chromium behind the existing `gui` marker.
+  One counts painted pixels, which is the only way to tell a working viewer from
+  a canvas that throws inside its render loop while every response stays a
+  cheerful 200.
 - **Augmented proportional navigation**, `a = N*V_c*(Omega x r_hat) +
   (N/2)*a_t_perp`. The coefficient is the optimal-control solution for a target
   holding *constant* acceleration, under the same criterion that gives `N = 3`
@@ -21,28 +43,39 @@ All notable changes to this project are documented here. The format follows
   seeker and the EKF, six seeds: the weave goes from 6.94 m and 0 hits from 6 to
   1.21 m and 6 from 6; the break turn from 4.87 m and 3 from 6 to 1.62 m and 6
   from 6. Nothing else changed — same missile, same seeker, same filter.
-- **And it fails instructively, which is the more useful half.** Against a
+- **And where it fails, the reason is not the one it looks like.** Against a
   barrel roll APN is twelve times *worse* than the law it augments (469 m
-  against 31 m), and it fails that way on a **perfect** track, so the diagnosis
-  is unambiguous: this is the premise, not the estimate. A barrel roll holds
-  acceleration magnitude constant while rotating its direction, so APN's lead
-  never decays — a standing 7.5 g command pointing somewhere new every second.
-  It commands less peak acceleration than PN (13 g against 246 g), uses more on
-  average (5.6 g against 4.8 g), pays induced drag for all of it and arrives at
-  265 m/s where PN arrives at 407. The jink fails for a different reason worth
-  keeping apart: APN handles it well on truth (1.5 m against 11.1 m) and badly
-  through the filter. Not because the filter is slow — measured, the EKF picks
-  up each new break in about 20 ms — but because its acceleration error over the
-  last two seconds runs at a median 12.0 g against a target pulling 7.0, and APN
-  amplifies that by `N/2` into the command. On the weave the same filter is
-  wrong by 1.8 g and the term is worth a factor of six. So the jink is the
-  estimate and a manoeuvre-detecting filter would help; the barrel roll is the
-  premise and nothing downstream can. Both are asserted in tests rather than
-  papered over.
+  against 31 m), and it fails that way on a **perfect** track, so the filter is
+  not the explanation. Neither is the constant-acceleration premise, even though
+  a barrel roll plainly violates it. Hold everything fixed and vary only
+  `max_lift_coefficient`, on truth:
+
+  | `Cl_max` | PN | APN |
+  |---|---|---|
+  | 2.5 | 24.44 m, 18% saturated | 310.98 m, 40% saturated, arrives 265 m/s |
+  | 3.5 | 8.61 m, 12% | 7.53 m, 20% |
+  | 5.0 | 3.31 m, 7% | **0.02 m**, 9%, arrives 420 m/s |
+
+  Twice the lift and APN is a hundred and fifty times *better* than PN against
+  the manoeuvre that supposedly defeats it — the premise is exactly as violated
+  at `Cl_max = 5` as at 2.5. **The lead term is a request for lift**, roughly
+  half as much again, and it is only free when the airframe has margin. Where it
+  saturates the surplus is never produced, but the lift that *is* produced still
+  costs induced drag, so the missile pays for the whole command and receives
+  part of it. A weave banked 60° out of the horizontal is the same story (306 m
+  against PN's 21 m, and 0.41 m once the lift is there): the missile is already
+  spending lift on holding itself up. The jink is the one genuine estimator
+  failure — APN handles it on truth (1.5 m against 11.1 m) and loses through the
+  filter, not because the EKF is slow (measured: it picks up each new break in
+  about 20 ms) but because its acceleration error over the last two seconds runs
+  at a median 12.0 g against a target pulling 7.0, which APN amplifies by `N/2`
+  into the command. Uncomfortably, the number deciding all of this is one of the
+  constants this project cannot cite.
 - `augmented` ships as a scenario — the break turn APN was derived for, with a
-  one-line edit in the comments to switch it to the barrel roll it cannot do —
-  and `examples/augmented_pronav.py` measures all five behaviours on both a
-  perfect track and a real one, writing `runs/augmented-pronav.png`.
+  one-line edit in the comments to switch it to the barrel roll it cannot do on
+  the shipped airframe — and `examples/augmented_pronav.py` measures all five
+  behaviours on both a perfect track and a real one, writing
+  `runs/augmented-pronav.png`.
 - **Turning costs energy.** `Aerodynamics` now adds lift-induced drag,
   `Cd = Cd0 + k*Cn^2`. The factor is not a new free constant: a body at
   incidence makes its normal force perpendicular to its own axis rather than to
@@ -94,6 +127,17 @@ All notable changes to this project are documented here. The format follows
   arrives too slow to correct. Not a regression: the model becoming honest, and
   exactly the gap augmented proportional navigation is meant to close using the
   target acceleration the EKF already estimates.
+- `config.bundled_text` returns a shipped scenario's raw TOML, comments and all.
+  Both `interceptor show --raw` and the browser app's editor now start there
+  rather than reaching into the package's resources themselves.
+- `EngagementSpec.describe()` is the one sentence naming the law, the seeker and
+  the estimator. There are three things displaying it now, and somebody running
+  the same scenario two ways should not have to work out whether two differently
+  worded descriptions mean the same configuration.
+- `Frame` carries the index of the recorded sample it was drawn from. The
+  renderers that hold one frame at a time keep using the cumulative trails; the
+  browser, which would otherwise send a growing trail per frame down a wire,
+  indexes into the two trajectories instead.
 - `interceptor show` and the 3D viewer's subtitle name the guidance law by its
   own name rather than its class's — `ProNav (N=3)` against `APN (N=3)`, where
   the class names differ only by a prefix and the navigation constant, which is
