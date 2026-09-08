@@ -31,11 +31,29 @@ terminal guidance saturates no matter how much airframe you give it.
 ## Try it
 
 ```bash
-pip install -e ".[dev,viz]"
-interceptor serve      # browser window, everything in one place
+git clone https://github.com/AlexF0643/missile-intercept-tracker.git
+cd missile-intercept-tracker
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[viz]"
+interceptor serve               # browser window, everything in one place
 ```
 
-Or from the command line:
+On Windows, in PowerShell:
+
+```powershell
+git clone https://github.com/AlexF0643/missile-intercept-tracker.git
+cd missile-intercept-tracker
+py -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e ".[viz]"
+interceptor serve
+
+If `py` isn't recognised and you use Anaconda, run these from the Anaconda Prompt
+rather than PowerShell — conda keeps its Python off the system PATH.
+```
+
+Or from the command line, once installed:
 
 ```bash
 interceptor list                            # scenarios that ship with it
@@ -43,9 +61,8 @@ interceptor run crossing --seed 3           # fly one
 interceptor sweep crossing --seeds 20       # fly it 20 times
 interceptor monte-carlo crossing            # ...and vary the constants too
 interceptor record crossing -o flight.gif   # animation
-interceptor view crossing                   # live 3D window (needs the live extra)
+interceptor view crossing                   # live 3D window, needs pip install -e ".[live]"
 ```
-
 ## What I found
 
 Four things, roughly in the order I found them. Two of them are mistakes I made
