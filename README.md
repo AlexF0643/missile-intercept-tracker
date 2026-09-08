@@ -49,8 +49,9 @@ py -m venv .venv
 pip install -e ".[viz]"
 interceptor serve
 
+```
 If `py` isn't recognised and you use Anaconda, run these from the Anaconda Prompt
-rather than PowerShell — conda keeps its Python off the system PATH.
+rather than PowerShell; anaconda keeps its Python off the system PATH.
 ```
 
 Or from the command line, once installed:
@@ -73,7 +74,7 @@ and then caught, which I've left in because they're the most useful part.
 ![Miss distance by estimator against three target behaviours](docs/assets/estimator-comparison.png)
 
 Proportional navigation on perfect data intercepts within 34 cm. Give it a real
-seeker and it misses by **1644 m**. Nothing wrong with the guidance law — the
+seeker and it misses by **1644 m**. Nothing wrong with the guidance law; the
 problem is that I was getting relative velocity by finding the difference between two noisy
 positions 10 ms apart, which multiplies a 2 mrad angle error by about a hundred.
 
@@ -100,7 +101,7 @@ nothing to correct with.
 Miss distance tells you whether the estimate was accurate. It says nothing about
 whether the covariance the filter reports is honest, and those can come apart.
 A filter that understates its uncertainty runs too small a gain and starts
-ignoring measurements that disagree with it — fine on a quiet target, late on
+ignoring measurements that disagree with it; fine on a quiet target, late on
 the manoeuvre that matters.
 
 The check for this is NEES: measure the error in units of the filter's own
@@ -114,7 +115,7 @@ First time I ran it, it scored **1804**.
 The seeker holds each measurement back a frame and stamps it with when it was
 taken. I was correcting the filter's current state with that stale measurement
 while telling it where the missile was *now*. That folds one frame of relative
-motion into every estimate as a fixed offset — 6.5 m at 650 m/s of closing,
+motion into every estimate as a fixed offset; 6.5 m at 650 m/s of closing,
 against a filter claiming about 2 m of uncertainty.
 
 Fixing it moved the miss distance by a few centimetres. That's exactly why I'd
@@ -127,7 +128,7 @@ Everything above changed when I made the aerodynamics admit that lift costs drag
 A body at incidence makes its normal force perpendicular to its own axis, not to
 the flight path, so some of that force points backwards. `Cd = Cd0 + k·Cn²`,
 with `k = 1/Cn_alpha`, and the lift-curve slope is just peak lift over the angle
-it needs — the airframe had already declared everything I needed. At full lift
+it needs; the airframe had already declared everything I needed. At full lift
 that's about four times the zero-lift drag. Before this the missile was turning
 for free.
 
@@ -161,7 +162,7 @@ honest, and closing that gap is the next section.
 
 Same missile, same weaving target, only the law differs. Pursuit steers at where
 the target is, swings wide into a tail chase and misses by 89.1 m. PN steers to
-stop the bearing drifting, cuts inside that arc, and misses by 6.0 m — five and
+stop the bearing drifting, cuts inside that arc, and misses by 6.0 m; five and
 a half seconds sooner and with four times the closing speed.
 
 ### Augmented PN, and the thing I got wrong about it
@@ -175,7 +176,7 @@ term for the acceleration itself:
 a = N·V_c·(Ω × r̂)  +  (N/2)·a_t⊥
 ```
 
-`N/2` isn't a tuning knob — it's the optimal-control answer for a target holding
+`N/2` isn't a tuning knob; it's the optimal-control answer for a target holding
 *constant* acceleration, from the same criterion that gives `N = 3` against one
 holding none.
 
@@ -199,7 +200,7 @@ explanation.
 
 I wrote this up as APN's assumption failing. A barrel roll holds acceleration
 *magnitude* constant while rotating its direction, so the lead term never
-decays — that seemed obviously right, and I had a measurement backing it up (APN
+decays; that seemed right, and I had a measurement backing it up (APN
 arrives at 265 m/s where PN arrives at 407, so it's clearly bleeding energy).
 
 It's wrong. I only found out because I was clicking around in the browser app
@@ -223,7 +224,7 @@ So the lead term isn't beaten by the barrel roll. It's beaten by an airframe
 that can't deliver what it asks for. APN commands roughly half as much lateral
 acceleration again as PN. Where the airframe can produce that, it's worth a lot.
 Where it saturates, the extra never gets produced, but the lift that *does* get
-produced still costs induced drag — so the missile pays for the whole command
+produced still costs induced drag, so the missile pays for the whole command
 and only receives part of it.
 
 That one mechanism covers the rest. A weave banked 60° out of the horizontal
@@ -233,7 +234,7 @@ that to 0.41 m as well. The jink is the one case where the filter really is the
 problem: APN handles it fine on a perfect track (1.52 m vs 11.11 m) and only
 loses through the seeker, because the EKF's acceleration error over the last two
 seconds runs at a median 12.0 g against a target pulling 7.0, and APN multiplies
-that by `N/2` — about 18 g of noise straight into the airframe. On the weave the
+that by `N/2`; about 18 g of noise straight into the airframe. On the weave the
 same filter is only wrong by 1.8 g, and the same term is worth a factor of six.
 
 I've left all of this as it is and pinned it in tests rather than tuning it
@@ -276,7 +277,7 @@ missile actually is. Sixty candidates, ten launches each:
 Three things come out of that.
 
 **The seeker noise barely matters.** 87% of PN's draws and 80% of APN's are
-all-or-nothing — every launch hits, or none of them do. Ten seeds can only do
+all-or-nothing; every launch hits, or none of them do. Ten seeds can only do
 that if the real probability is already pinned near 0 or 1. For a given
 airframe the missile either has the energy and the lift to catch a weaving
 target or it doesn't, and the noise only settles the borderline cases. The
@@ -291,7 +292,7 @@ hits in 47% of them.
 0.97 against 0.00. Averaged over plausible constants it's *worse*, 0.27 against
 0.47. Both are honest about the model they came from. Only the second is honest
 about what the model is built on, and the APN section above should be read that
-way — a law that needs lift margin looks great on an airframe generous enough to
+way; a law that needs lift margin looks great on an airframe generous enough to
 give it, and that generosity is something I made up.
 
 Which guess matters most? Rank correlation between each drawn constant and that
@@ -307,7 +308,7 @@ draw's probability of kill, for APN:
 ```
 
 Thirteen constants vary at once and sixty draws isn't many, so this is a hint
-rather than a ranking — doing it properly means varying one at a time, which is
+rather than a ranking; doing it properly means varying one at a time, which is
 a much longer study. But nothing in the *seeker* leads, and the top entry is
 `max_lift_coefficient`, which is the same constant behind the barrel-roll
 mistake above. Two completely different investigations landed on the same
@@ -343,7 +344,7 @@ Three decisions worth mentioning:
   perspective projection I wrote by hand, no three.js and no CDN, so it works
   with no network at all and the package still installs with just numpy.
 - **The browser never decides what a valid scenario is.** The form builds TOML —
-  the same text `interceptor show --raw` prints, editable in a pane — and posts
+  the same text `interceptor show --raw` prints, editable in a pane; and posts
   it to the same reader a file goes through. Every bound and every *did you mean
   `glint_sigma`?* is the one the command line already uses.
 - **The form is generated from a table**, not written out by hand, and two tests
@@ -355,7 +356,7 @@ APN explanation was wrong.
 
 ## Writing your own scenario
 
-Engagements are TOML files. Copy one and edit it — `reference` has every setting
+Engagements are TOML files. Copy one and edit it; `reference` has every setting
 with its default and a note on what it does:
 
 ```bash
@@ -449,7 +450,7 @@ The boundary of a model is part of the model, so:
 - Flat, non-rotating earth. No Coriolis, no curvature.
 - Exponential atmosphere, `rho = 1.225 * exp(-h / 8500)`.
 - Constant zero-lift drag coefficient plus an induced term `k·Cn²`. No Mach
-  dependence — the missile spends about half a second of a twelve-second flight
+  dependence. The missile spends about half a second of a twelve-second flight
   transonic, so I don't think a Mach table would change much. Induced drag,
   which was missing until fairly late, changed a great deal.
 - The seeker is modelled at the measurement level, not at the level of
@@ -509,7 +510,7 @@ decides an engagement: does the round arrive inside its lethal radius.
 
 **Phase 3** originally compared miss distances against a *straight* crossing
 target. Induced drag ended pursuit's overshoot, so pursuit started converging on
-straight targets and the comparison stopped separating the two laws — not
+straight targets and the comparison stopped separating the two laws; not
 because pursuit got better, but because the test had been measuring an artefact.
 It's flown against a weaving target now.
 
