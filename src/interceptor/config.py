@@ -501,9 +501,14 @@ def load(path: str | Path) -> EngagementSpec:
     """Read a scenario from a ``.toml`` file."""
     file = Path(path)
     try:
-        text = file.read_text(encoding="utf-8")
+        text = file.read_text(encoding="utf-8-sig")
     except OSError as error:
         raise ConfigError(f"cannot read {file}: {error}") from error
+    except UnicodeDecodeError as error:
+        raise ConfigError(
+            f"{file} is not UTF-8 — {error}. PowerShell's '>' writes UTF-16; "
+            f"use '| Set-Content -Encoding utf8 my-scenario.toml' instead."
+        ) from error
     return loads(text, file.stem)
 
 
