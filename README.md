@@ -52,7 +52,7 @@ interceptor serve
 ```
 If `py` isn't recognised and you use Anaconda, run these from the Anaconda Prompt
 rather than PowerShell; anaconda keeps its Python off the system PATH.
-```
+
 
 Or from the command line, once installed:
 
